@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Provides backend-agnostic traits and domain types for Ralph workflow concepts. Adapters implement these traits to provide task, story, and progress data from their respective spec systems (OpenSpec, SpecKit, etc.).
+
+## Requirements
 
 ### Requirement: Task domain types
 The system SHALL provide domain types representing Ralph task hierarchy: `Epic`, `Story`, and `Task` with their associated metadata.

@@ -1,3 +1,7 @@
+## Purpose
+
+Defines core TUI lifecycle management including terminal initialization, restoration, event loop, and graceful shutdown.
+
 ## Requirements
 
 ### Requirement: Terminal initialization

@@ -1,3 +1,7 @@
+## Purpose
+
+Defines the visual rendering requirements for the TUI application's user interface.
+
 ## Requirements
 
 ### Requirement: Basic UI rendering

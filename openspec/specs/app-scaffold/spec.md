@@ -1,3 +1,7 @@
+## Purpose
+
+Defines the foundational project structure and build configuration for the ralphtool TUI application.
+
 ## Requirements
 
 ### Requirement: Valid Cargo project structure
