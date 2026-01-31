@@ -18,17 +18,41 @@ use event::handle_events;
 use ui::render;
 
 fn main() -> Result<()> {
+    // Check if openspec CLI is available
+    if let Err(e) = check_openspec_cli() {
+        eprintln!("Error: {}", e);
+        eprintln!("Please ensure OpenSpec CLI is installed and in your PATH.");
+        std::process::exit(1);
+    }
+
     install_panic_hook();
 
     let mut terminal = init_terminal()?;
 
     let mut app = App::new();
+
+    // Load available changes on startup
+    if let Err(e) = app.load_changes() {
+        restore_terminal()?;
+        eprintln!("Failed to load changes: {}", e);
+        std::process::exit(1);
+    }
+
     while app.running {
         terminal.draw(|frame| render(frame, &app))?;
         handle_events(&mut app)?;
     }
 
     restore_terminal()?;
+    Ok(())
+}
+
+fn check_openspec_cli() -> Result<()> {
+    use std::process::Command;
+    Command::new("openspec")
+        .arg("--version")
+        .output()
+        .map_err(|_| anyhow::anyhow!("OpenSpec CLI not found"))?;
     Ok(())
 }
 

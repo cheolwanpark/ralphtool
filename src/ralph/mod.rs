@@ -6,6 +6,7 @@
 
 mod traits;
 mod types;
+pub mod openspec;
 
 pub use traits::*;
 pub use types::*;
