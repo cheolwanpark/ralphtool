@@ -61,6 +61,20 @@ pub enum AgentCommand {
 
     /// Record a pattern
     Pattern(PatternArgs),
+
+    /// Verification commands for the verification agent phase
+    #[command(subcommand)]
+    Verify(VerifyCommand),
+}
+
+/// Verify subcommands for verification agent.
+#[derive(Subcommand)]
+pub enum VerifyCommand {
+    /// Get verification context (all requirements, scenarios, completed tasks)
+    Context,
+
+    /// Mark the current story as verified/passed
+    Pass,
 }
 
 /// Session lifecycle commands (used by orchestrator).

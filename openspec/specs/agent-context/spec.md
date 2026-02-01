@@ -26,7 +26,12 @@ The system SHALL return complete context for the current story via `ralphtool ag
 
 - **WHEN** agent calls `context` with RALPH_STORY=2
 - **THEN** spec adapter returns only tasks belonging to story 2
-- **THEN** spec adapter returns only scenarios relevant to story 2
+
+#### Scenario: Context returns all scenarios
+
+- **WHEN** `ralphtool agent context` is called
+- **THEN** system returns all scenarios from the change's specs directory
+- **THEN** scenarios are not filtered by story ID
 
 ### Requirement: Verification commands
 

@@ -708,8 +708,8 @@ impl ContextProvider for OpenSpecAdapter {
         let design_path = self.change_dir.join("design.md");
         let design = fs::read_to_string(&design_path).unwrap_or_default();
 
-        // Get scenarios for this story
-        let scenarios = self.scenarios_for(story_id)?;
+        // Get all scenarios (not filtered by story_id, as IDs don't match between tasks.md and specs)
+        let scenarios = self.list_scenarios()?;
 
         // Infer verification commands from project type
         let verify = infer_verify_commands()?;

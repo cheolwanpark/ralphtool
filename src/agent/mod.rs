@@ -10,6 +10,7 @@ pub mod context;
 pub mod progress;
 pub mod session;
 pub mod tasks;
+pub mod verify;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -71,6 +72,7 @@ pub fn run(command: AgentCommand) -> Result<()> {
         AgentCommand::Status => tasks::run_status(),
         AgentCommand::Learn(cmd) => progress::run(cmd),
         AgentCommand::Pattern(cmd) => progress::run_pattern(cmd),
+        AgentCommand::Verify(cmd) => verify::run(cmd),
     };
 
     // If there's an error, format it as JSON
