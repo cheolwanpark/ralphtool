@@ -1,4 +1,6 @@
 mod agent;
+mod ralph_loop;
+mod session;
 mod app;
 mod error;
 mod event;
@@ -16,7 +18,7 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 
-use agent::cli::{Cli, RootCommand};
+use session::cli::{Cli, RootCommand};
 use app::App;
 use event::handle_events;
 use ui::render;
@@ -26,7 +28,7 @@ fn main() -> Result<()> {
 
     // If agent subcommand is present, run agent mode
     if let Some(RootCommand::Agent { command }) = cli.command {
-        return agent::run(command);
+        return session::run(command);
     }
 
     // Otherwise, run TUI mode

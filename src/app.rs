@@ -1,6 +1,8 @@
-use crate::spec::{Scenario, Story};
+use crate::ralph_loop::LoopState;
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use crate::spec::SpecAdapter;
+use crate::spec::{Scenario, Story};
+use crate::ui::LoopResult;
 use anyhow::Result;
 
 /// The current screen being displayed.
@@ -10,6 +12,12 @@ pub enum Screen {
     ChangeSelection,
     /// Screen for previewing conversion results.
     ConversionPreview,
+    /// Screen for displaying loop progress (future integration).
+    #[allow(dead_code)]
+    LoopExecution,
+    /// Screen for reviewing loop results (future integration).
+    #[allow(dead_code)]
+    LoopResult,
 }
 
 /// Tab selection for the preview screen.
@@ -42,6 +50,14 @@ pub struct App {
     pub tasks_scroll_offset: usize,
     /// Scroll offset for the Scenarios tab.
     pub scenarios_scroll_offset: usize,
+    /// Loop execution state.
+    pub loop_state: LoopState,
+    /// Log messages during loop execution.
+    pub loop_log: Vec<String>,
+    /// Loop result for review.
+    pub loop_result: LoopResult,
+    /// Scroll offset for result screen.
+    pub result_scroll_offset: usize,
 }
 
 impl App {
@@ -58,7 +74,51 @@ impl App {
             active_tab: PreviewTab::default(),
             tasks_scroll_offset: 0,
             scenarios_scroll_offset: 0,
+            loop_state: LoopState::new(""),
+            loop_log: Vec::new(),
+            loop_result: LoopResult::default(),
+            result_scroll_offset: 0,
         }
+    }
+
+    /// Starts the loop execution for the selected change.
+    #[allow(dead_code)]
+    pub fn start_loop(&mut self) {
+        if let Some(ref name) = self.selected_change_name {
+            self.loop_state = LoopState::new(name);
+            self.loop_log.clear();
+            self.screen = Screen::LoopExecution;
+        }
+    }
+
+    /// Adds a log message to the loop log.
+    #[allow(dead_code)]
+    pub fn add_loop_log(&mut self, message: String) {
+        self.loop_log.push(message);
+    }
+
+    /// Updates the loop state.
+    #[allow(dead_code)]
+    pub fn update_loop_state(&mut self, state: LoopState) {
+        self.loop_state = state;
+    }
+
+    /// Transitions to the result screen with the given result.
+    #[allow(dead_code)]
+    pub fn show_loop_result(&mut self, result: LoopResult) {
+        self.loop_result = result;
+        self.result_scroll_offset = 0;
+        self.screen = Screen::LoopResult;
+    }
+
+    /// Scrolls up in the result screen.
+    pub fn result_scroll_up(&mut self) {
+        self.result_scroll_offset = self.result_scroll_offset.saturating_sub(1);
+    }
+
+    /// Scrolls down in the result screen.
+    pub fn result_scroll_down(&mut self) {
+        self.result_scroll_offset = self.result_scroll_offset.saturating_add(1);
     }
 
     pub fn quit(&mut self) {

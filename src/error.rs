@@ -28,6 +28,12 @@ pub enum Error {
     Command { cmd: String, stderr: String },
     /// Parse error.
     Parse(String),
+    /// Claude CLI not found.
+    ClaudeNotFound,
+    /// Agent execution error.
+    AgentExecution(String),
+    /// Agent output error.
+    AgentOutput(String),
 }
 
 /// Result type alias using ralphtool's Error.
@@ -47,6 +53,9 @@ impl Error {
             Error::Json(_) => "JSON_ERROR",
             Error::Command { .. } => "COMMAND_ERROR",
             Error::Parse(_) => "PARSE_ERROR",
+            Error::ClaudeNotFound => "CLAUDE_NOT_FOUND",
+            Error::AgentExecution(_) => "AGENT_EXECUTION_ERROR",
+            Error::AgentOutput(_) => "AGENT_OUTPUT_ERROR",
         }
     }
 }
@@ -81,6 +90,13 @@ impl fmt::Display for Error {
                 write!(f, "Command '{}' failed: {}", cmd, stderr)
             }
             Error::Parse(msg) => write!(f, "Parse error: {}", msg),
+            Error::ClaudeNotFound => write!(
+                f,
+                "Claude CLI not found.\n\
+                 Please ensure Claude Code is installed and in your PATH."
+            ),
+            Error::AgentExecution(msg) => write!(f, "Agent execution error: {}", msg),
+            Error::AgentOutput(msg) => write!(f, "Agent output error: {}", msg),
         }
     }
 }

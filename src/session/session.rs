@@ -13,7 +13,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::agent::cli::{SessionCommand, SessionInitArgs};
+use crate::session::cli::{SessionCommand, SessionInitArgs};
 use crate::error::{Error, Result};
 use crate::spec;
 

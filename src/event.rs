@@ -16,6 +16,8 @@ pub fn handle_events(app: &mut App) -> Result<()> {
                     Screen::ConversionPreview => {
                         handle_preview_events(app, key_event.code, key_event.modifiers)
                     }
+                    Screen::LoopExecution => handle_loop_events(app, key_event.code),
+                    Screen::LoopResult => handle_result_events(app, key_event.code),
                 }
             }
         }
@@ -49,6 +51,28 @@ fn handle_preview_events(app: &mut App, code: KeyCode, modifiers: KeyModifiers) 
         KeyCode::Tab if modifiers.contains(KeyModifiers::SHIFT) => app.switch_to_previous_tab(),
         KeyCode::Tab => app.switch_to_next_tab(),
         KeyCode::BackTab => app.switch_to_previous_tab(),
+        _ => {}
+    }
+}
+
+fn handle_loop_events(app: &mut App, code: KeyCode) {
+    match code {
+        // 'q' sets stop flag - the loop will stop after current agent completes
+        KeyCode::Char('q') | KeyCode::Char('Q') => {
+            // Note: In actual implementation, this would set the stop flag
+            // via the orchestrator's stop_handle(). For now, just go back.
+            app.back_to_selection();
+        }
+        _ => {}
+    }
+}
+
+fn handle_result_events(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
+        KeyCode::Esc => app.back_to_selection(),
+        KeyCode::Up => app.result_scroll_up(),
+        KeyCode::Down => app.result_scroll_down(),
         _ => {}
     }
 }
