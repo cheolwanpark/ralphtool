@@ -32,23 +32,42 @@ impl ClaudeAgent {
     }
 }
 
+/// Build the command-line arguments for the Claude CLI.
+/// Extracted for testability.
+fn build_command_args(prompt: &str, config: &AgentConfig) -> Vec<String> {
+    let mut args = Vec::new();
+
+    // Add prompt flag
+    args.push("-p".to_string());
+    args.push(prompt.to_string());
+
+    // Add output format
+    args.push("--output-format".to_string());
+    args.push("json".to_string());
+
+    // Add allowed tools if specified
+    if !config.allowed_tools.is_empty() {
+        args.push("--allowedTools".to_string());
+        args.push(config.allowed_tools.join(","));
+    }
+
+    // Add max turns
+    args.push("--max-turns".to_string());
+    args.push(config.max_turns.to_string());
+
+    // Add skip permissions flag if enabled
+    if config.dangerously_skip_permissions {
+        args.push("--dangerously-skip-permissions".to_string());
+    }
+
+    args
+}
+
 impl CodingAgent for ClaudeAgent {
     fn run(&self, prompt: &str, config: &AgentConfig) -> Result<AgentOutput> {
         let mut cmd = Command::new("claude");
-
-        // Add prompt flag
-        cmd.arg("-p").arg(prompt);
-
-        // Add output format
-        cmd.arg("--output-format").arg("json");
-
-        // Add allowed tools if specified
-        if !config.allowed_tools.is_empty() {
-            cmd.arg("--allowedTools").arg(config.allowed_tools.join(","));
-        }
-
-        // Add max turns
-        cmd.arg("--max-turns").arg(config.max_turns.to_string());
+        let args = build_command_args(prompt, config);
+        cmd.args(&args);
 
         // Execute with timeout
         let output = cmd.output().map_err(|e| {
@@ -203,5 +222,33 @@ mod tests {
     fn agent_new_creates_instance() {
         let agent = ClaudeAgent::new();
         assert!(std::mem::size_of_val(&agent) == 0); // Zero-sized type
+    }
+
+    #[test]
+    fn skip_permissions_flag_passed_when_enabled() {
+        let config = AgentConfig {
+            dangerously_skip_permissions: true,
+            ..Default::default()
+        };
+
+        let args = build_command_args("test prompt", &config);
+        assert!(
+            args.contains(&"--dangerously-skip-permissions".to_string()),
+            "Expected --dangerously-skip-permissions flag to be present"
+        );
+    }
+
+    #[test]
+    fn skip_permissions_flag_not_passed_when_disabled() {
+        let config = AgentConfig {
+            dangerously_skip_permissions: false,
+            ..Default::default()
+        };
+
+        let args = build_command_args("test prompt", &config);
+        assert!(
+            !args.contains(&"--dangerously-skip-permissions".to_string()),
+            "Expected --dangerously-skip-permissions flag to be absent"
+        );
     }
 }

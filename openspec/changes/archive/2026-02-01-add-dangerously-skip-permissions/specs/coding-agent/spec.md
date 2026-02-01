@@ -1,8 +1,4 @@
-## Purpose
-
-Coding agent abstraction and Claude Code integration for autonomous AI development.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: CodingAgent trait
 The system SHALL define a CodingAgent trait that abstracts AI coding backends.
@@ -46,18 +42,3 @@ The system SHALL provide a ClaudeAgent implementation of the CodingAgent trait.
 #### Scenario: Parse output
 - **WHEN** Claude CLI returns JSON output
 - **THEN** the agent extracts result, session_id, and usage from the response
-
-### Requirement: Error handling
-The system SHALL handle agent errors gracefully.
-
-#### Scenario: Claude CLI not found
-- **WHEN** the claude command is not available
-- **THEN** the system returns an error with a helpful message
-
-#### Scenario: Agent timeout
-- **WHEN** the agent exceeds the configured timeout
-- **THEN** the system terminates the process and returns a timeout error
-
-#### Scenario: Invalid output
-- **WHEN** the agent returns non-JSON output
-- **THEN** the system returns an error with the raw output for debugging

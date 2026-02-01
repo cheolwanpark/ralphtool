@@ -35,6 +35,10 @@ pub struct AgentConfig {
 
     /// Timeout for the agent execution.
     pub timeout: Duration,
+
+    /// Skip permission prompts for tool execution.
+    /// WARNING: Only use in trusted, automated environments.
+    pub dangerously_skip_permissions: bool,
 }
 
 impl Default for AgentConfig {
@@ -43,6 +47,7 @@ impl Default for AgentConfig {
             allowed_tools: Vec::new(),
             max_turns: 50,
             timeout: Duration::from_secs(600), // 10 minutes
+            dangerously_skip_permissions: false,
         }
     }
 }
