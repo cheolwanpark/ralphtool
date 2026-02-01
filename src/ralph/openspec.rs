@@ -1,7 +1,7 @@
 //! OpenSpec adapter implementing Ralph traits.
 //!
 //! This adapter reads completed OpenSpec changes and converts them
-//! to Ralph domain types (Epic, Story, Task, UserStory, Scenario).
+//! to Ralph domain types (Story, Task, UserStory, Scenario).
 
 use std::collections::HashMap;
 use std::fs;
@@ -12,7 +12,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
 use crate::ralph::{
-    Epic, Learning, Pattern, Priority, ProgressTracker, Scenario, Story, StoryProvider, Task,
+    Learning, Pattern, Priority, ProgressTracker, Scenario, Story, StoryProvider, Task,
     TaskSource, UserStory, VerificationSource,
 };
 
@@ -48,7 +48,7 @@ struct StatusResponse {
 pub struct OpenSpecAdapter {
     change_name: String,
     change_dir: PathBuf,
-    epics: Vec<Epic>,
+    stories: Vec<Story>,
     user_stories: Vec<UserStory>,
     scenarios: Vec<Scenario>,
     /// Maps scenario name to the story_id it belongs to
@@ -68,7 +68,7 @@ impl OpenSpecAdapter {
 
         // Parse tasks.md
         let tasks_path = change_dir.join("tasks.md");
-        let epics = if tasks_path.exists() {
+        let stories = if tasks_path.exists() {
             Self::parse_tasks_file(&tasks_path)?
         } else {
             Vec::new()
@@ -85,7 +85,7 @@ impl OpenSpecAdapter {
         Ok(Self {
             change_name: change_name.to_string(),
             change_dir,
-            epics,
+            stories,
             user_stories,
             scenarios,
             scenario_to_story,
@@ -133,7 +133,7 @@ impl OpenSpecAdapter {
         Ok(change_dir)
     }
 
-    fn parse_tasks_file(path: &Path) -> Result<Vec<Epic>> {
+    fn parse_tasks_file(path: &Path) -> Result<Vec<Story>> {
         let content = fs::read_to_string(path).context("Failed to read tasks.md")?;
         parse_tasks_md(&content)
     }
@@ -185,73 +185,53 @@ fn run_openspec_command(args: &[&str]) -> Result<String> {
     Ok(stdout)
 }
 
-/// Parses tasks.md content into Epic hierarchy.
+/// Parses tasks.md content into Story hierarchy.
 ///
 /// Format:
-/// - `## N. Title` → Epic with id "N" and title "Title"
+/// - `## N. Title` → Story with id "N" and title "Title"
 /// - `- [ ] N.M Description` → Incomplete task with id "N.M"
 /// - `- [x] N.M Description` → Complete task with id "N.M"
-fn parse_tasks_md(content: &str) -> Result<Vec<Epic>> {
-    let mut epics: Vec<Epic> = Vec::new();
-    let mut current_epic: Option<Epic> = None;
+fn parse_tasks_md(content: &str) -> Result<Vec<Story>> {
+    let mut stories: Vec<Story> = Vec::new();
+    let mut current_story: Option<Story> = None;
 
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Parse epic headers: ## N. Title
+        // Parse story headers: ## N. Title
         if let Some(rest) = trimmed.strip_prefix("## ") {
-            // Save current epic if any
-            if let Some(epic) = current_epic.take() {
-                epics.push(epic);
+            // Save current story if any
+            if let Some(story) = current_story.take() {
+                stories.push(story);
             }
 
             // Parse "N. Title" format
-            if let Some((id, title)) = parse_epic_header(rest) {
-                current_epic = Some(Epic {
+            if let Some((id, title)) = parse_story_header(rest) {
+                current_story = Some(Story {
                     id,
                     title,
-                    stories: vec![Story {
-                        id: String::new(), // Will be set based on epic id
-                        title: String::new(),
-                        tasks: Vec::new(),
-                    }],
+                    tasks: Vec::new(),
                 });
             }
         }
         // Parse task checkboxes: - [ ] N.M Description or - [x] N.M Description
         else if let Some(task) = parse_task_line(trimmed) {
-            if let Some(ref mut epic) = current_epic {
-                // Add task to the first (and only) story in this epic
-                if let Some(story) = epic.stories.first_mut() {
-                    story.tasks.push(task);
-                }
+            if let Some(ref mut story) = current_story {
+                story.tasks.push(task);
             }
         }
     }
 
-    // Save final epic
-    if let Some(mut epic) = current_epic {
-        // Set story id based on epic
-        if let Some(story) = epic.stories.first_mut() {
-            story.id = format!("{}-story", epic.id);
-            story.title = epic.title.clone();
-        }
-        epics.push(epic);
+    // Save final story
+    if let Some(story) = current_story {
+        stories.push(story);
     }
 
-    // Update story ids for all epics
-    for epic in &mut epics {
-        if let Some(story) = epic.stories.first_mut() {
-            story.id = format!("{}-story", epic.id);
-            story.title = epic.title.clone();
-        }
-    }
-
-    Ok(epics)
+    Ok(stories)
 }
 
-/// Parses an epic header like "1. Project Setup" into (id, title).
-fn parse_epic_header(text: &str) -> Option<(String, String)> {
+/// Parses a story header like "1. Project Setup" into (id, title).
+fn parse_story_header(text: &str) -> Option<(String, String)> {
     let mut parts = text.splitn(2, ". ");
     let id = parts.next()?.trim().to_string();
     let title = parts.next()?.trim().to_string();
@@ -439,17 +419,15 @@ fn extract_step(line: &str) -> String {
 impl TaskSource for OpenSpecAdapter {
     type Error = anyhow::Error;
 
-    fn list_tasks(&self) -> Result<Vec<Epic>, Self::Error> {
-        Ok(self.epics.clone())
+    fn list_tasks(&self) -> Result<Vec<Story>, Self::Error> {
+        Ok(self.stories.clone())
     }
 
     fn next_task(&self) -> Result<Option<Task>, Self::Error> {
-        for epic in &self.epics {
-            for story in &epic.stories {
-                for task in &story.tasks {
-                    if !task.complete {
-                        return Ok(Some(task.clone()));
-                    }
+        for story in &self.stories {
+            for task in &story.tasks {
+                if !task.complete {
+                    return Ok(Some(task.clone()));
                 }
             }
         }
@@ -457,13 +435,11 @@ impl TaskSource for OpenSpecAdapter {
     }
 
     fn mark_complete(&mut self, task_id: &str) -> Result<(), Self::Error> {
-        for epic in &mut self.epics {
-            for story in &mut epic.stories {
-                for task in &mut story.tasks {
-                    if task.id == task_id {
-                        task.complete = true;
-                        return Ok(());
-                    }
+        for story in &mut self.stories {
+            for task in &mut story.tasks {
+                if task.id == task_id {
+                    task.complete = true;
+                    return Ok(());
                 }
             }
         }
@@ -542,21 +518,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_epic_header_valid() {
-        let result = parse_epic_header("1. Project Setup");
+    fn parse_story_header_valid() {
+        let result = parse_story_header("1. Project Setup");
         assert_eq!(result, Some(("1".to_string(), "Project Setup".to_string())));
     }
 
     #[test]
-    fn parse_epic_header_two_digit() {
-        let result = parse_epic_header("12. Large Epic");
-        assert_eq!(result, Some(("12".to_string(), "Large Epic".to_string())));
+    fn parse_story_header_two_digit() {
+        let result = parse_story_header("12. Large Story");
+        assert_eq!(result, Some(("12".to_string(), "Large Story".to_string())));
     }
 
     #[test]
-    fn parse_epic_header_invalid() {
-        assert_eq!(parse_epic_header("Not an epic"), None);
-        assert_eq!(parse_epic_header("A. Invalid"), None);
+    fn parse_story_header_invalid() {
+        assert_eq!(parse_story_header("Not a story"), None);
+        assert_eq!(parse_story_header("A. Invalid"), None);
     }
 
     #[test]
@@ -593,18 +569,18 @@ mod tests {
 
 - [ ] 2.1 Another task
 "#;
-        let epics = parse_tasks_md(content).unwrap();
-        assert_eq!(epics.len(), 2);
+        let stories = parse_tasks_md(content).unwrap();
+        assert_eq!(stories.len(), 2);
 
-        assert_eq!(epics[0].id, "1");
-        assert_eq!(epics[0].title, "Setup");
-        assert_eq!(epics[0].stories[0].tasks.len(), 2);
-        assert!(!epics[0].stories[0].tasks[0].complete);
-        assert!(epics[0].stories[0].tasks[1].complete);
+        assert_eq!(stories[0].id, "1");
+        assert_eq!(stories[0].title, "Setup");
+        assert_eq!(stories[0].tasks.len(), 2);
+        assert!(!stories[0].tasks[0].complete);
+        assert!(stories[0].tasks[1].complete);
 
-        assert_eq!(epics[1].id, "2");
-        assert_eq!(epics[1].title, "Implementation");
-        assert_eq!(epics[1].stories[0].tasks.len(), 1);
+        assert_eq!(stories[1].id, "2");
+        assert_eq!(stories[1].title, "Implementation");
+        assert_eq!(stories[1].tasks.len(), 1);
     }
 
     #[test]

@@ -74,44 +74,43 @@ Ralph's original model: one user story = one iteration. This works but has limit
 2. **No hierarchy**: All stories appear equal regardless of complexity
 3. **Rigid granularity**: Must split everything to context-window size
 
-### Improved Hierarchy: Epic > Story > Task
+### Improved Hierarchy: Story > Task
 
-OpenSpec naturally supports hierarchy through `tasks.md` structure:
+OpenSpec uses a simplified 2-level hierarchy through `tasks.md` structure:
 
 ```markdown
 # Tasks
 
-## Epic 1: Theme Infrastructure
+## 1. Theme Infrastructure
 The foundational work needed for theming support.
 
-### Story 1.1: Create Theme Context
-- [ ] 1.1.1 Define ThemeContext with light/dark state
-- [ ] 1.1.2 Add ThemeProvider wrapper component
-- [ ] 1.1.3 Create useTheme hook
+- [ ] 1.1 Define ThemeContext with light/dark state
+- [ ] 1.2 Add ThemeProvider wrapper component
+- [ ] 1.3 Create useTheme hook
 
-### Story 1.2: CSS Variable System
-- [ ] 1.2.1 Define color tokens as CSS custom properties
-- [ ] 1.2.2 Create dark theme color mappings
-- [ ] 1.2.3 Add theme class to document root
+## 2. CSS Variable System
 
-## Epic 2: User Interface
-User-facing theme controls.
+- [ ] 2.1 Define color tokens as CSS custom properties
+- [ ] 2.2 Create dark theme color mappings
+- [ ] 2.3 Add theme class to document root
 
-### Story 2.1: Theme Toggle Component
-- [ ] 2.1.1 Create ThemeToggle button component
-- [ ] 2.1.2 Add toggle to settings page
-- [ ] 2.1.3 Persist preference to localStorage
+## 3. Theme Toggle Component
+
+- [ ] 3.1 Create ThemeToggle button component
+- [ ] 3.2 Add toggle to settings page
+- [ ] 3.3 Persist preference to localStorage
 ```
 
 ### Execution Model
 
-**Per-iteration granularity: Task level (numbered items)**
+**Per-iteration granularity: Story level**
 
-Each Ralph iteration works on ONE task (e.g., `1.1.1`), not an entire story. This provides:
+Each Ralph iteration works on ONE story (e.g., story `1`), which includes all its tasks. This provides:
 
-- **Smaller units**: Tasks fit comfortably in one context window
-- **Clear progress**: Visible checkmarks at fine granularity
-- **Context preservation**: Story/Epic headings provide context even with fresh memory
+- **Cohesive units**: Stories represent meaningful units of work
+- **Clear progress**: Visible checkmarks at task granularity
+- **Context preservation**: Story headings provide context even with fresh memory
+- **Reduced iterations**: ~10 story iterations instead of ~30 task iterations
 
 **Story-level verification**: After all tasks in a story complete, verify the story's scenarios.
 
@@ -119,9 +118,8 @@ Each Ralph iteration works on ONE task (e.g., `1.1.1`), not an entire story. Thi
 
 | Level | OpenSpec Location | Purpose |
 |-------|-------------------|---------|
-| **Epic** | `## Heading` in tasks.md | High-level grouping |
-| **Story** | `### Subheading` in tasks.md | Cohesive unit of value |
-| **Task** | `- [ ] Numbered item` | Single iteration work unit |
+| **Story** | `## Heading` in tasks.md | Cohesive unit of value (iteration unit) |
+| **Task** | `- [ ] Numbered item` | Sub-steps within a story |
 | **Scenario** | Delta specs | Verification criteria |
 
 ---
@@ -199,17 +197,13 @@ describe('Theme Toggle', () => {
 │                    VERIFICATION FLOW                         │
 │                                                              │
 │  1. TASK COMPLETION                                          │
-│     └─ Check off task: - [x] 1.1.1 Create ThemeContext       │
+│     └─ Check off task: - [x] 1.1 Create ThemeContext         │
 │                                                              │
 │  2. STORY COMPLETION (all tasks in story done)               │
-│     └─ Run scenario tests for Story 1.1                      │
+│     └─ Run scenario tests for Story 1                        │
 │     └─ Verify scenarios pass                                 │
 │                                                              │
-│  3. EPIC COMPLETION (all stories in epic done)               │
-│     └─ Run integration tests                                 │
-│     └─ Browser verification                                  │
-│                                                              │
-│  4. CHANGE COMPLETION (all epics done)                       │
+│  3. CHANGE COMPLETION (all stories done)                     │
 │     └─ openspec validate                                     │
 │     └─ Full test suite                                       │
 │     └─ openspec archive                                      │

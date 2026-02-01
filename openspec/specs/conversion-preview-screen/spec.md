@@ -7,13 +7,13 @@ Defines the conversion preview screen that displays Ralph domain data (tasks, st
 ### Requirement: Display task hierarchy
 The screen SHALL display the full task hierarchy from the selected change.
 
-#### Scenario: Show epic groupings
+#### Scenario: Show story groupings
 - **WHEN** the preview screen is displayed
-- **THEN** epic titles SHALL be displayed as section headers
+- **THEN** story titles SHALL be displayed as section headers
 
-#### Scenario: Show tasks under epics
-- **WHEN** an epic is displayed
-- **THEN** all tasks belonging to that epic SHALL be listed beneath it
+#### Scenario: Show tasks under stories
+- **WHEN** a story is displayed
+- **THEN** all tasks belonging to that story SHALL be listed beneath it
 - **AND** each task SHALL show its id, description, and completion status
 
 #### Scenario: Visual completion indicator

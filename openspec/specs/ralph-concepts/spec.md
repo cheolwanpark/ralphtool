@@ -5,7 +5,7 @@ Provides backend-agnostic traits and domain types for Ralph workflow concepts. A
 ## Requirements
 
 ### Requirement: Task domain types
-The system SHALL provide domain types representing Ralph task hierarchy: `Epic`, `Story`, and `Task` with their associated metadata.
+The system SHALL provide domain types representing Ralph task hierarchy: `Story` and `Task` with their associated metadata.
 
 #### Scenario: Task with completion state
 - **WHEN** a Task is created
@@ -15,16 +15,12 @@ The system SHALL provide domain types representing Ralph task hierarchy: `Epic`,
 - **WHEN** a Story is represented
 - **THEN** it SHALL contain zero or more Tasks and have an id and title
 
-#### Scenario: Epic contains stories
-- **WHEN** an Epic is represented
-- **THEN** it SHALL contain zero or more Stories and have an id and title
-
 ### Requirement: TaskSource trait
 The system SHALL provide a `TaskSource` trait that adapters implement to provide task data from their backend.
 
 #### Scenario: List all tasks
 - **WHEN** `list_tasks()` is called
-- **THEN** the adapter SHALL return all tasks in hierarchical form (Epic > Story > Task)
+- **THEN** the adapter SHALL return all tasks in hierarchical form (Story > Task)
 
 #### Scenario: Get next incomplete task
 - **WHEN** `next_task()` is called

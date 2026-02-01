@@ -28,16 +28,6 @@ pub struct Story {
     pub tasks: Vec<Task>,
 }
 
-/// An epic containing related stories.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Epic {
-    /// Unique identifier for the epic.
-    pub id: String,
-    /// Title of the epic.
-    pub title: String,
-    /// Stories that belong to this epic.
-    pub stories: Vec<Story>,
-}
 
 // ============================================================================
 // Progress Types
@@ -182,32 +172,6 @@ mod tests {
             tasks: vec![],
         };
         assert!(story.tasks.is_empty());
-    }
-
-    #[test]
-    fn epic_contains_stories() {
-        let epic = Epic {
-            id: "epic-1".to_string(),
-            title: "Authentication".to_string(),
-            stories: vec![Story {
-                id: "s1".to_string(),
-                title: "Login".to_string(),
-                tasks: vec![],
-            }],
-        };
-        assert_eq!(epic.id, "epic-1");
-        assert_eq!(epic.title, "Authentication");
-        assert_eq!(epic.stories.len(), 1);
-    }
-
-    #[test]
-    fn epic_can_have_no_stories() {
-        let epic = Epic {
-            id: "empty".to_string(),
-            title: "Empty epic".to_string(),
-            stories: vec![],
-        };
-        assert!(epic.stories.is_empty());
     }
 
     // Progress types tests

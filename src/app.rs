@@ -1,4 +1,4 @@
-use crate::ralph::{Epic, Scenario, UserStory};
+use crate::ralph::{Scenario, Story, UserStory};
 use crate::ralph::openspec::{ChangeInfo, OpenSpecAdapter};
 use anyhow::Result;
 
@@ -17,8 +17,8 @@ pub struct App {
     pub screen: Screen,
     /// Name of the selected change (if any).
     pub selected_change_name: Option<String>,
-    /// Loaded epics from the selected change.
-    pub epics: Vec<Epic>,
+    /// Loaded stories from the selected change.
+    pub stories: Vec<Story>,
     /// Loaded user stories from the selected change.
     pub user_stories: Vec<UserStory>,
     /// Loaded scenarios from the selected change.
@@ -37,7 +37,7 @@ impl App {
             running: true,
             screen: Screen::ChangeSelection,
             selected_change_name: None,
-            epics: Vec::new(),
+            stories: Vec::new(),
             user_stories: Vec::new(),
             scenarios: Vec::new(),
             available_changes: Vec::new(),
@@ -64,7 +64,7 @@ impl App {
     pub fn load_selected_change(&mut self) -> Result<()> {
         if let Some(ref name) = self.selected_change_name {
             let adapter = OpenSpecAdapter::new(name)?;
-            self.epics = adapter.list_tasks()?;
+            self.stories = adapter.list_tasks()?;
             self.user_stories = adapter.list_stories()?;
             self.scenarios = adapter.list_scenarios()?;
         }

@@ -22,7 +22,7 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
 
     // Header with change name and counts
     let change_name = app.selected_change_name.as_deref().unwrap_or("Unknown");
-    let task_count: usize = app.epics.iter().flat_map(|e| &e.stories).flat_map(|s| &s.tasks).count();
+    let task_count: usize = app.stories.iter().flat_map(|s| &s.tasks).count();
     let story_count = app.user_stories.len();
     let scenario_count = app.scenarios.len();
 
@@ -53,32 +53,30 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
     )));
     lines.push(Line::from(""));
 
-    for epic in &app.epics {
+    for story in &app.stories {
         lines.push(Line::from(vec![
             Span::styled("▸ ", Style::default().fg(Color::Yellow)),
             Span::styled(
-                format!("Epic {}: {}", epic.id, epic.title),
+                format!("Story {}: {}", story.id, story.title),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
         ]));
 
-        for story in &epic.stories {
-            for task in &story.tasks {
-                let checkbox = if task.complete { "[x]" } else { "[ ]" };
-                let style = if task.complete {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default()
-                };
-                lines.push(Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled(checkbox, style),
-                    Span::raw(" "),
-                    Span::styled(&task.id, Style::default().fg(Color::DarkGray)),
-                    Span::raw(" "),
-                    Span::raw(&task.description),
-                ]));
-            }
+        for task in &story.tasks {
+            let checkbox = if task.complete { "[x]" } else { "[ ]" };
+            let style = if task.complete {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default()
+            };
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(checkbox, style),
+                Span::raw(" "),
+                Span::styled(&task.id, Style::default().fg(Color::DarkGray)),
+                Span::raw(" "),
+                Span::raw(&task.description),
+            ]));
         }
         lines.push(Line::from(""));
     }

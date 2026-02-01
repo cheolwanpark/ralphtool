@@ -440,13 +440,7 @@ count_completed_tasks() {
 }
 
 get_current_story() {
-  # Find the story heading (### ) above the current task
-  local line_num=$1
-  head -n "$line_num" "$TASKS_FILE" | grep "^### " | tail -1 | sed 's/^### //'
-}
-
-get_current_epic() {
-  # Find the epic heading (## ) above the current task
+  # Find the story heading (## ) above the current task
   local line_num=$1
   head -n "$line_num" "$TASKS_FILE" | grep "^## " | tail -1 | sed 's/^## //'
 }
@@ -459,7 +453,6 @@ generate_prompt() {
   local task_text="$1"
   local task_line="$2"
   local story=$(get_current_story "$task_line")
-  local epic=$(get_current_epic "$task_line")
 
   # Get OpenSpec instructions
   local instructions=$(openspec instructions apply --change "$CHANGE_NAME" --json 2>/dev/null || echo "{}")
@@ -471,7 +464,6 @@ You are an autonomous coding agent working on change: **$CHANGE_NAME**
 
 ## Current Context
 
-- **Epic:** $epic
 - **Story:** $story
 - **Task:** $task_text
 
@@ -602,7 +594,7 @@ exit 1
 | Feature | Description |
 |---------|-------------|
 | **Task parsing** | Reads `tasks.md` for checkbox state |
-| **Hierarchy awareness** | Extracts Epic/Story context for the AI |
+| **Hierarchy awareness** | Extracts Story context for the AI |
 | **Dynamic prompts** | Uses `openspec instructions` for context |
 | **Branch management** | Creates/switches to `ralph/<change-name>` |
 | **Progress tracking** | Shows completed/remaining counts |
@@ -643,46 +635,46 @@ openspec archive add-priority-feature
 ```markdown
 # Tasks
 
-## 1. Database Layer
+## 1. Database Layer - Priority Column
 Foundation for priority storage.
 
-### Story 1.1: Priority Column
-- [ ] 1.1.1 Add priority column to tasks table (enum: high|medium|low, default: medium)
-- [ ] 1.1.2 Create database migration script
-- [ ] 1.1.3 Run migration and verify
+- [ ] 1.1 Add priority column to tasks table (enum: high|medium|low, default: medium)
+- [ ] 1.2 Create database migration script
+- [ ] 1.3 Run migration and verify
 
-### Story 1.2: Priority Queries
-- [ ] 1.2.1 Add getPriorityTasks query function
-- [ ] 1.2.2 Update existing task queries to include priority
+## 2. Database Layer - Priority Queries
 
-## 2. Backend Logic
+- [ ] 2.1 Add getPriorityTasks query function
+- [ ] 2.2 Update existing task queries to include priority
+
+## 3. Backend Logic - Task Service Updates
 Server-side priority handling.
 
-### Story 2.1: Task Service Updates
-- [ ] 2.1.1 Add priority field to TaskDTO
-- [ ] 2.1.2 Update createTask to accept priority
-- [ ] 2.1.3 Update updateTask to modify priority
-- [ ] 2.1.4 Add filterByPriority method
+- [ ] 3.1 Add priority field to TaskDTO
+- [ ] 3.2 Update createTask to accept priority
+- [ ] 3.3 Update updateTask to modify priority
+- [ ] 3.4 Add filterByPriority method
 
-## 3. User Interface
+## 4. User Interface - Priority Badge Component
 Priority visualization and controls.
 
-### Story 3.1: Priority Badge Component
-- [ ] 3.1.1 Create PriorityBadge component with color variants
-- [ ] 3.1.2 Add priority badge to TaskCard component
-- [ ] 3.1.3 Verify in browser
+- [ ] 4.1 Create PriorityBadge component with color variants
+- [ ] 4.2 Add priority badge to TaskCard component
+- [ ] 4.3 Verify in browser
 
-### Story 3.2: Priority Selector
-- [ ] 3.2.1 Create PrioritySelector dropdown component
-- [ ] 3.2.2 Add selector to TaskEditModal
-- [ ] 3.2.3 Wire up to updateTask API
-- [ ] 3.2.4 Verify in browser
+## 5. User Interface - Priority Selector
 
-### Story 3.3: Priority Filter
-- [ ] 3.3.1 Add priority filter dropdown to TaskList header
-- [ ] 3.3.2 Implement filter logic with URL param persistence
-- [ ] 3.3.3 Add empty state for no matching tasks
-- [ ] 3.3.4 Verify in browser
+- [ ] 5.1 Create PrioritySelector dropdown component
+- [ ] 5.2 Add selector to TaskEditModal
+- [ ] 5.3 Wire up to updateTask API
+- [ ] 5.4 Verify in browser
+
+## 6. User Interface - Priority Filter
+
+- [ ] 6.1 Add priority filter dropdown to TaskList header
+- [ ] 6.2 Implement filter logic with URL param persistence
+- [ ] 6.3 Add empty state for no matching tasks
+- [ ] 6.4 Verify in browser
 ```
 
 ### Example 3: Delta Specs with Scenarios
@@ -766,24 +758,22 @@ Filter persists in URL so users can:
 ```markdown
 # Tasks
 
-## [Epic Number]. [Epic Title]
-[Optional epic description]
+## [Story Number]. [Story Title]
+[Optional story description]
 
-### Story [Epic].[Story]: [Story Title]
-- [ ] [Epic].[Story].[Task] [Task description]
-- [ ] [Epic].[Story].[Task] [Task description]
-- [x] [Epic].[Story].[Task] [Completed task]
+- [ ] [Story].[Task] [Task description]
+- [ ] [Story].[Task] [Task description]
+- [x] [Story].[Task] [Completed task]
 
-### Story [Epic].[Story]: [Another Story]
-- [ ] [Epic].[Story].[Task] [Task description]
+## [Story Number]. [Another Story]
+- [ ] [Story].[Task] [Task description]
 ```
 
 **Parsing rules:**
-- `## ` = Epic heading
-- `### ` or `### Story` = Story heading
+- `## ` = Story heading
 - `- [ ] ` = Incomplete task
 - `- [x] ` = Complete task
-- Numbering format: `Epic.Story.Task` (e.g., `1.2.3`)
+- Numbering format: `Story.Task` (e.g., `1.2`)
 
 ### design.md Learnings Section
 
@@ -889,7 +879,7 @@ Database queries SHOULD use numbered sql templates for aggregations.
 
 The OpenSpec-Ralph integration provides:
 
-1. **Structured task management** via `tasks.md` with Epic > Story > Task hierarchy
+1. **Structured task management** via `tasks.md` with Story > Task hierarchy
 2. **Rich context** from OpenSpec artifacts (proposal, design, specs)
 3. **Verifiable requirements** through Given/When/Then scenarios in delta specs
 4. **CLI-based state management** - no direct file editing needed

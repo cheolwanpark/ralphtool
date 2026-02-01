@@ -3,7 +3,7 @@
 //! Adapters implement these traits to provide task, story, and progress data
 //! from their respective spec systems.
 
-use crate::ralph::types::{Epic, Learning, Pattern, Scenario, Task, UserStory};
+use crate::ralph::types::{Learning, Pattern, Scenario, Story, Task, UserStory};
 
 // ============================================================================
 // TaskSource Trait
@@ -12,13 +12,13 @@ use crate::ralph::types::{Epic, Learning, Pattern, Scenario, Task, UserStory};
 /// Provides task data from a spec system backend.
 ///
 /// Adapters implement this trait to expose tasks in the Ralph-compatible
-/// hierarchical format (Epic > Story > Task).
+/// hierarchical format (Story > Task).
 pub trait TaskSource {
     /// The error type returned by this adapter.
     type Error;
 
-    /// Returns all tasks in hierarchical form.
-    fn list_tasks(&self) -> Result<Vec<Epic>, Self::Error>;
+    /// Returns all tasks in hierarchical form (Story > Task).
+    fn list_tasks(&self) -> Result<Vec<Story>, Self::Error>;
 
     /// Returns the next incomplete task in priority order.
     ///
