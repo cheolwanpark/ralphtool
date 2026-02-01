@@ -60,9 +60,14 @@ fn handle_loop_events(app: &mut App, code: KeyCode) {
     match code {
         // 'q' sets stop flag - the loop will stop after current agent completes
         KeyCode::Char('q') | KeyCode::Char('Q') => {
-            // Note: In actual implementation, this would set the stop flag
-            // via the orchestrator's stop_handle(). For now, just go back.
-            app.back_to_selection();
+            if app.loop_state.running {
+                // Request stop and wait for graceful shutdown
+                app.request_loop_stop();
+            } else {
+                // Loop already stopped, can navigate away
+                app.cleanup_loop();
+                app.back_to_selection();
+            }
         }
         _ => {}
     }

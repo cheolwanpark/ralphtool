@@ -9,7 +9,7 @@ mod selection;
 
 pub use loop_screen::render_loop_screen;
 pub use preview::render_preview;
-pub use result_screen::{render_result_screen, LoopResult, VerificationResult};
+pub use result_screen::{render_result_screen, LoopResult};
 pub use selection::render_selection;
 
 use ratatui::prelude::*;

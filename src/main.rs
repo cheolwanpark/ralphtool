@@ -58,6 +58,24 @@ fn run_tui() -> Result<()> {
 
     while app.running {
         terminal.draw(|frame| render(frame, &app))?;
+
+        // Process loop events when on the loop execution screen
+        if app.screen == app::Screen::LoopExecution {
+            let completed = app.process_loop_events();
+
+            // Check if we should transition
+            if completed {
+                // Loop completed normally - show result screen
+                let result = app.build_loop_result();
+                app.cleanup_loop();
+                app.show_loop_result(result);
+            } else if !app.loop_state.running && app.is_loop_thread_finished() {
+                // Loop was stopped by user - go back to selection
+                app.cleanup_loop();
+                app.back_to_selection();
+            }
+        }
+
         handle_events(&mut app)?;
     }
 
