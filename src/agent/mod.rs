@@ -27,27 +27,18 @@ pub trait CodingAgent {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
-    /// List of tools the agent is allowed to use.
-    pub allowed_tools: Vec<String>,
-
     /// Maximum number of turns before the agent stops.
     pub max_turns: u32,
 
     /// Timeout for the agent execution.
     pub timeout: Duration,
-
-    /// Skip permission prompts for tool execution.
-    /// WARNING: Only use in trusted, automated environments.
-    pub dangerously_skip_permissions: bool,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            allowed_tools: Vec::new(),
             max_turns: 50,
             timeout: Duration::from_secs(600), // 10 minutes
-            dangerously_skip_permissions: false,
         }
     }
 }

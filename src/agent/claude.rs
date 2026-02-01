@@ -45,20 +45,12 @@ fn build_command_args(prompt: &str, config: &AgentConfig) -> Vec<String> {
     args.push("--output-format".to_string());
     args.push("json".to_string());
 
-    // Add allowed tools if specified
-    if !config.allowed_tools.is_empty() {
-        args.push("--allowedTools".to_string());
-        args.push(config.allowed_tools.join(","));
-    }
-
     // Add max turns
     args.push("--max-turns".to_string());
     args.push(config.max_turns.to_string());
 
-    // Add skip permissions flag if enabled
-    if config.dangerously_skip_permissions {
-        args.push("--dangerously-skip-permissions".to_string());
-    }
+    // Always skip permissions for autonomous operation
+    args.push("--dangerously-skip-permissions".to_string());
 
     args
 }
@@ -225,30 +217,13 @@ mod tests {
     }
 
     #[test]
-    fn skip_permissions_flag_passed_when_enabled() {
-        let config = AgentConfig {
-            dangerously_skip_permissions: true,
-            ..Default::default()
-        };
+    fn skip_permissions_flag_always_present() {
+        let config = AgentConfig::default();
 
         let args = build_command_args("test prompt", &config);
         assert!(
             args.contains(&"--dangerously-skip-permissions".to_string()),
-            "Expected --dangerously-skip-permissions flag to be present"
-        );
-    }
-
-    #[test]
-    fn skip_permissions_flag_not_passed_when_disabled() {
-        let config = AgentConfig {
-            dangerously_skip_permissions: false,
-            ..Default::default()
-        };
-
-        let args = build_command_args("test prompt", &config);
-        assert!(
-            !args.contains(&"--dangerously-skip-permissions".to_string()),
-            "Expected --dangerously-skip-permissions flag to be absent"
+            "Expected --dangerously-skip-permissions flag to always be present"
         );
     }
 }
