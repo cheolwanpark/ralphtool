@@ -1,10 +1,10 @@
 //! Orchestrator for the Ralph Loop.
 //!
 //! The orchestrator drives the main loop by:
-//! 1. Loading stories from the spec adapter
-//! 2. Iterating through incomplete stories
+//! 1. Initializing a scoped session with exclusive lock
+//! 2. Iterating through incomplete stories via session
 //! 3. Generating instructions for each story
-//! 4. Spawning an agent to complete the story
+//! 4. Spawning an agent with session environment variables
 //! 5. Parsing output to detect task completions
 //! 6. Flushing learnings on completion
 
@@ -17,9 +17,8 @@ use super::{LoopEvent, LoopEventSender, LoopState};
 use crate::agent::{AgentConfig, AgentOutput, CodingAgent};
 use crate::error::Result;
 use crate::session::instructions::generate_instructions;
+use crate::session::ScopedSession;
 use crate::spec;
-#[allow(unused_imports)]
-use crate::spec::SpecAdapter;
 
 /// Orchestrator for the Ralph Loop.
 pub struct Orchestrator {
@@ -63,10 +62,15 @@ impl Orchestrator {
 
     /// Run the orchestration loop.
     ///
-    /// Iterates through all incomplete stories, spawning an agent for each.
+    /// Initializes a scoped session, iterates through incomplete stories,
+    /// and spawns an agent for each with session environment variables.
     /// Returns the final loop state.
     pub async fn run(&mut self) -> Result<LoopState> {
-        let mut adapter = spec::create_adapter(&self.change_name)?;
+        // Initialize scoped session (acquires exclusive lock)
+        let mut session = ScopedSession::init(&self.change_name)?;
+
+        // Get initial story count
+        let adapter = spec::create_adapter(&self.change_name)?;
         let stories = adapter.stories()?;
 
         let mut state = LoopState::new(&self.change_name);
@@ -74,12 +78,22 @@ impl Orchestrator {
         state.stories_completed = stories.iter().filter(|s| s.is_complete()).count();
         state.running = true;
 
-        // Process each incomplete story
-        for story in stories.iter().filter(|s| !s.is_complete()) {
+        // Process stories via session iteration
+        while let Some(story_id) = session.next_story()? {
             // Check for stop request
             if self.stop_flag.load(Ordering::Relaxed) {
                 break;
             }
+
+            // Create adapter to get story details
+            let mut adapter = spec::create_adapter(&self.change_name)?;
+            let stories = adapter.stories()?;
+            let story = stories.iter().find(|s| s.id == story_id);
+
+            let story = match story {
+                Some(s) => s,
+                None => continue,
+            };
 
             // Update state
             state.current_story = Some(story.id.clone());
@@ -96,8 +110,17 @@ impl Orchestrator {
             // Generate instructions for this story
             let instructions = generate_instructions(adapter.as_ref(), &story.id)?;
 
-            // Run the agent
-            match self.agent.run(&instructions, &self.config) {
+            // Create agent config with session environment variables
+            let agent_config = AgentConfig::new()
+                .with_env(session.env());
+            let agent_config = AgentConfig {
+                max_turns: self.config.max_turns,
+                timeout: self.config.timeout,
+                env: agent_config.env,
+            };
+
+            // Run the agent with session environment
+            match self.agent.run(&instructions, &agent_config) {
                 Ok(output) => {
                     // Parse output for task completions
                     let completed_tasks = self.parse_task_completions(&output);
@@ -133,13 +156,13 @@ impl Orchestrator {
             }
 
             // Reload adapter to check story completion
-            adapter = spec::create_adapter(&self.change_name)?;
-            let updated_stories = adapter.stories()?;
+            let updated_adapter = spec::create_adapter(&self.change_name)?;
+            let updated_stories = updated_adapter.stories()?;
 
-            if let Some(updated) = updated_stories.iter().find(|s| s.id == story.id) {
+            if let Some(updated) = updated_stories.iter().find(|s| s.id == story_id) {
                 if updated.is_complete() {
                     self.emit(LoopEvent::StoryCompleted {
-                        story_id: story.id.clone(),
+                        story_id: story_id.clone(),
                     })
                     .await;
                     state.stories_completed += 1;
@@ -147,10 +170,11 @@ impl Orchestrator {
             }
         }
 
-        // Flush learnings on completion
-        if let Err(e) = adapter.append_learnings(&[]) {
+        // Flush session (releases lock, cleans up session file)
+        // Learnings would be passed here if accumulated
+        if let Err(e) = session.flush(&[]) {
             self.emit(LoopEvent::Error {
-                message: format!("Failed to flush learnings: {}", e),
+                message: format!("Failed to flush session: {}", e),
             })
             .await;
         }

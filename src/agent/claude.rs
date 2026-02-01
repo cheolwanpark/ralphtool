@@ -61,6 +61,11 @@ impl CodingAgent for ClaudeAgent {
         let args = build_command_args(prompt, config);
         cmd.args(&args);
 
+        // Add session environment variables
+        for (key, value) in &config.env {
+            cmd.env(key, value);
+        }
+
         // Execute with timeout
         let output = cmd.output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {

@@ -15,3 +15,6 @@ uuid = { version = "1.8", features = ["v4"] }
 fs2 = "0.4"
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
 regex = "1"
+
+[dev-dependencies]
+tempfile = "3"

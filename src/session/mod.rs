@@ -7,7 +7,10 @@
 
 pub mod cli;
 pub mod instructions;
+pub mod scoped;
 pub mod state;
+
+pub use scoped::ScopedSession;
 
 use serde::Serialize;
 

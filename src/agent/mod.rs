@@ -9,6 +9,7 @@
 #[allow(dead_code)]
 pub mod claude;
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::error::Result;
@@ -25,21 +26,32 @@ pub trait CodingAgent {
 
 /// Configuration for spawning a coding agent.
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AgentConfig {
     /// Maximum number of turns before the agent stops.
     pub max_turns: u32,
 
     /// Timeout for the agent execution.
     pub timeout: Duration,
+
+    /// Additional environment variables to pass to the subprocess.
+    pub env: HashMap<String, String>,
 }
 
-impl Default for AgentConfig {
-    fn default() -> Self {
+impl AgentConfig {
+    /// Create a new AgentConfig with default values.
+    pub fn new() -> Self {
         Self {
             max_turns: 50,
             timeout: Duration::from_secs(600), // 10 minutes
+            env: HashMap::new(),
         }
+    }
+
+    /// Set additional environment variables.
+    pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
+        self.env = env;
+        self
     }
 }
 
