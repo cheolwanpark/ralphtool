@@ -10,7 +10,7 @@ The system SHALL provide a single `SpecAdapter` trait that combines all spec ope
 
 #### Scenario: Trait definition
 - **WHEN** implementing a spec adapter
-- **THEN** one trait provides: `stories()`, `scenarios()`, `context()`, `mark_done()`, `append_learnings()`
+- **THEN** one trait provides: `stories()`, `scenarios()`, `context()`, `verify_commands()`
 
 ### Requirement: Story type
 

@@ -1,6 +1,5 @@
 mod agent;
 mod ralph_loop;
-mod session;
 mod app;
 mod error;
 mod event;
@@ -11,27 +10,18 @@ use std::io;
 use std::panic;
 
 use anyhow::Result;
-use clap::Parser;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
 
-use session::cli::{Cli, RootCommand};
 use app::App;
 use event::handle_events;
 use ui::render;
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
-
-    // If agent subcommand is present, run agent mode
-    if let Some(RootCommand::Agent { command }) = cli.command {
-        return session::run(command);
-    }
-
-    // Otherwise, run TUI mode
+    // Run TUI mode
     run_tui()
 }
 

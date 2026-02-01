@@ -26,6 +26,7 @@ pub struct Story {
     pub tasks: Vec<Task>,
 }
 
+#[allow(dead_code)]
 impl Story {
     /// Returns true if all tasks in this story are complete.
     pub fn is_complete(&self) -> bool {
@@ -75,6 +76,7 @@ pub struct VerifyCommands {
 
 /// Complete context needed by an agent to work on a story.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Context {
     /// Current story information.
     pub story: Story,

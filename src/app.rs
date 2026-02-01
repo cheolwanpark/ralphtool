@@ -61,8 +61,6 @@ pub struct App {
     pub loop_result: LoopResult,
     /// Scroll offset for result screen.
     pub result_scroll_offset: usize,
-    /// Total tasks completed across the entire loop (cumulative).
-    pub loop_total_tasks_completed: usize,
     /// Receiver for loop events from the orchestrator.
     pub loop_event_rx: Option<Receiver<LoopEvent>>,
     /// Stop flag to signal the orchestrator to stop.
@@ -89,7 +87,6 @@ impl App {
             loop_log: Vec::new(),
             loop_result: LoopResult::default(),
             result_scroll_offset: 0,
-            loop_total_tasks_completed: 0,
             loop_event_rx: None,
             loop_stop_flag: None,
             loop_thread: None,
@@ -105,31 +102,11 @@ impl App {
         use crate::ralph_loop::Orchestrator;
 
         if let Some(ref name) = self.selected_change_name {
-            // Load stories to get real counts
-            let adapter = match OpenSpecAdapter::new(name) {
-                Ok(a) => a,
-                Err(e) => {
-                    self.loop_log.push(format!("Failed to load adapter: {}", e));
-                    return;
-                }
-            };
-
-            let stories = match adapter.stories() {
-                Ok(s) => s,
-                Err(e) => {
-                    self.loop_log.push(format!("Failed to load stories: {}", e));
-                    return;
-                }
-            };
-
-            // Initialize loop state with real counts
+            // Initialize loop state
             let mut state = LoopState::new(name);
-            state.stories_total = stories.len();
-            state.stories_completed = stories.iter().filter(|s| s.is_complete()).count();
             state.running = true;
             self.loop_state = state;
             self.loop_log.clear();
-            self.loop_total_tasks_completed = 0;
 
             // Create channel for events (std::sync::mpsc for TUI compatibility)
             let (tx, rx) = mpsc::channel();
@@ -205,9 +182,9 @@ impl App {
 
         LoopResult {
             change_name: self.selected_change_name.clone().unwrap_or_default(),
-            stories_completed: self.loop_state.stories_completed,
-            stories_total: self.loop_state.stories_total,
-            tasks_completed: self.loop_total_tasks_completed,
+            stories_completed: 0,
+            stories_total: 0,
+            tasks_completed: 0,
             changed_files,
             verification_status: Vec::new(),
         }
@@ -411,22 +388,6 @@ impl App {
         // Now process the collected events
         for event in events {
             match event {
-                LoopEvent::StoryStarted { story_id, title } => {
-                    self.loop_state.current_story = Some(title.clone());
-                    self.add_loop_log(format!("Starting story: {} - {}", story_id, title));
-                }
-                LoopEvent::TaskCompleted { task_id } => {
-                    self.loop_state.tasks_completed += 1;
-                    self.loop_total_tasks_completed += 1;
-                    self.add_loop_log(format!("Task completed: {}", task_id));
-                }
-                LoopEvent::StoryCompleted { story_id } => {
-                    self.loop_state.stories_completed += 1;
-                    self.loop_state.current_story = None;
-                    self.loop_state.tasks_completed = 0;
-                    self.loop_state.tasks_total = 0;
-                    self.add_loop_log(format!("Story completed: {}", story_id));
-                }
                 LoopEvent::AgentOutput { line } => {
                     // Truncate long lines for log display
                     let display_line = if line.len() > 100 {
@@ -461,7 +422,7 @@ impl App {
 
         if let Some(ref flag) = self.loop_stop_flag {
             flag.store(true, Ordering::Relaxed);
-            self.add_loop_log("Stop requested, waiting for current agent to finish...".to_string());
+            self.add_loop_log("Stop requested, waiting for agent to finish...".to_string());
         }
     }
 
@@ -494,61 +455,20 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
-    fn process_loop_events_handles_story_started() {
+    fn process_loop_events_handles_agent_output() {
         let mut app = App::new();
         let (tx, rx) = mpsc::channel();
         app.loop_event_rx = Some(rx);
 
-        tx.send(LoopEvent::StoryStarted {
-            story_id: "1".to_string(),
-            title: "Test Story".to_string(),
+        tx.send(LoopEvent::AgentOutput {
+            line: "Agent is working...".to_string(),
         })
         .unwrap();
 
         let completed = app.process_loop_events();
 
         assert!(!completed);
-        assert_eq!(app.loop_state.current_story, Some("Test Story".to_string()));
-        assert!(app.loop_log.iter().any(|l| l.contains("Starting story")));
-    }
-
-    #[test]
-    fn process_loop_events_handles_task_completed() {
-        let mut app = App::new();
-        let (tx, rx) = mpsc::channel();
-        app.loop_event_rx = Some(rx);
-
-        tx.send(LoopEvent::TaskCompleted {
-            task_id: "task-1".to_string(),
-        })
-        .unwrap();
-
-        let completed = app.process_loop_events();
-
-        assert!(!completed);
-        assert_eq!(app.loop_state.tasks_completed, 1);
-        assert_eq!(app.loop_total_tasks_completed, 1);
-        assert!(app.loop_log.iter().any(|l| l.contains("Task completed")));
-    }
-
-    #[test]
-    fn process_loop_events_handles_story_completed() {
-        let mut app = App::new();
-        let (tx, rx) = mpsc::channel();
-        app.loop_event_rx = Some(rx);
-        app.loop_state.tasks_completed = 3;
-
-        tx.send(LoopEvent::StoryCompleted {
-            story_id: "1".to_string(),
-        })
-        .unwrap();
-
-        let completed = app.process_loop_events();
-
-        assert!(!completed);
-        assert_eq!(app.loop_state.stories_completed, 1);
-        assert_eq!(app.loop_state.tasks_completed, 0); // Reset per story
-        assert!(app.loop_state.current_story.is_none());
+        assert!(app.loop_log.iter().any(|l| l.contains("Agent is working")));
     }
 
     #[test]
@@ -622,13 +542,13 @@ mod tests {
         app.loop_event_rx = Some(rx);
         app.loop_stop_flag = Some(Arc::new(AtomicBool::new(false)));
         app.loop_state = LoopState::new("test-change");
-        app.loop_state.stories_total = 5;
+        app.loop_state.running = true;
 
         app.cleanup_loop();
 
         assert!(app.loop_event_rx.is_none());
         assert!(app.loop_stop_flag.is_none());
-        assert_eq!(app.loop_state.stories_total, 0);
+        assert!(!app.loop_state.running);
     }
 
     #[test]
@@ -641,39 +561,9 @@ mod tests {
     fn build_loop_result_captures_state() {
         let mut app = App::new();
         app.selected_change_name = Some("my-change".to_string());
-        app.loop_state.stories_completed = 3;
-        app.loop_state.stories_total = 5;
-        app.loop_total_tasks_completed = 10;
 
         let result = app.build_loop_result();
 
         assert_eq!(result.change_name, "my-change");
-        assert_eq!(result.stories_completed, 3);
-        assert_eq!(result.stories_total, 5);
-        assert_eq!(result.tasks_completed, 10);
-    }
-
-    #[test]
-    fn cumulative_tasks_count_across_stories() {
-        let mut app = App::new();
-        let (tx, rx) = mpsc::channel();
-        app.loop_event_rx = Some(rx);
-
-        // Complete 2 tasks in first story
-        tx.send(LoopEvent::TaskCompleted { task_id: "1".to_string() }).unwrap();
-        tx.send(LoopEvent::TaskCompleted { task_id: "2".to_string() }).unwrap();
-        tx.send(LoopEvent::StoryCompleted { story_id: "s1".to_string() }).unwrap();
-
-        // Complete 3 tasks in second story
-        tx.send(LoopEvent::TaskCompleted { task_id: "3".to_string() }).unwrap();
-        tx.send(LoopEvent::TaskCompleted { task_id: "4".to_string() }).unwrap();
-        tx.send(LoopEvent::TaskCompleted { task_id: "5".to_string() }).unwrap();
-        tx.send(LoopEvent::StoryCompleted { story_id: "s2".to_string() }).unwrap();
-
-        app.process_loop_events();
-
-        // Per-story counter resets, but cumulative keeps counting
-        assert_eq!(app.loop_state.tasks_completed, 0); // Reset after last story
-        assert_eq!(app.loop_total_tasks_completed, 5); // Cumulative
     }
 }

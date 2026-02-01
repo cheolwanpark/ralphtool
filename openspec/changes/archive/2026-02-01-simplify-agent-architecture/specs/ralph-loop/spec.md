@@ -1,8 +1,4 @@
-## Purpose
-
-Loop orchestration for autonomous AI development. Spawns a single coding agent with a self-contained prompt to work on an OpenSpec change.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Loop orchestration
 The system SHALL orchestrate autonomous AI development by spawning a single coding agent for an OpenSpec change with a self-contained prompt.
@@ -23,24 +19,28 @@ The system SHALL orchestrate autonomous AI development by spawning a single codi
 - **WHEN** the agent completes (exits)
 - **THEN** the system emits a Complete event
 
+## REMOVED Requirements
+
+### Requirement: Instruction generation
+**Reason**: Replaced by simple prompt template. Agent reads files directly instead of receiving generated instructions.
+**Migration**: Use new agent-prompt capability for prompt generation.
+
+### Requirement: Session-based task tracking
+**Reason**: Session concept removed. Tasks tracked via tasks.md file directly.
+**Migration**: Agent edits tasks.md to mark progress. No session state needed.
+
+## MODIFIED Requirements
+
 ### Requirement: Loop events
 The system SHALL emit events during loop execution to enable TUI updates.
 
 #### Scenario: Event types
 - **WHEN** the loop is running
-- **THEN** the system emits AgentOutput, Error, and Complete events
+- **THEN** the system emits AgentOutput and Complete events
 
 #### Scenario: TUI subscription
 - **WHEN** the TUI is displaying the loop screen
 - **THEN** it receives events via a channel and updates the display accordingly
-
-### Requirement: Loop control
-The system SHALL allow the user to stop the loop.
-
-#### Scenario: User stops loop
-- **WHEN** user presses 'q' during loop execution
-- **THEN** the system signals the agent to stop
-- **AND** preserves any completed work
 
 ### Requirement: TUI loop integration
 The TUI SHALL spawn the orchestrator when the user starts the loop and display agent output.

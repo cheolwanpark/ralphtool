@@ -1,12 +1,12 @@
 //! Custom error types for ralphtool.
 //!
-//! Provides a unified error type with machine-readable error codes
-//! for the agent CLI interface.
+//! Provides a unified error type with machine-readable error codes.
 
 use std::fmt;
 
 /// Custom error type for ralphtool operations.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     /// Change not found.
     ChangeNotFound(String),
@@ -14,12 +14,6 @@ pub enum Error {
     TaskNotFound(String),
     /// Story not found.
     StoryNotFound(String),
-    /// Session required but not set.
-    SessionRequired,
-    /// Story required but not set.
-    StoryRequired,
-    /// Change is locked by another session.
-    ChangeLocked(String),
     /// IO error.
     Io(std::io::Error),
     /// JSON parsing error.
@@ -39,6 +33,7 @@ pub enum Error {
 /// Result type alias using ralphtool's Error.
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[allow(dead_code)]
 impl Error {
     /// Returns a machine-readable error code.
     pub fn code(&self) -> &'static str {
@@ -46,9 +41,6 @@ impl Error {
             Error::ChangeNotFound(_) => "CHANGE_NOT_FOUND",
             Error::TaskNotFound(_) => "TASK_NOT_FOUND",
             Error::StoryNotFound(_) => "STORY_NOT_FOUND",
-            Error::SessionRequired => "SESSION_REQUIRED",
-            Error::StoryRequired => "STORY_REQUIRED",
-            Error::ChangeLocked(_) => "CHANGE_LOCKED",
             Error::Io(_) => "IO_ERROR",
             Error::Json(_) => "JSON_ERROR",
             Error::Command { .. } => "COMMAND_ERROR",
@@ -66,24 +58,6 @@ impl fmt::Display for Error {
             Error::ChangeNotFound(name) => write!(f, "Change not found: {}", name),
             Error::TaskNotFound(id) => write!(f, "Task not found: {}", id),
             Error::StoryNotFound(id) => write!(f, "Story not found: {}", id),
-            Error::SessionRequired => write!(
-                f,
-                "RALPH_SESSION environment variable not set.\n\
-                 This command requires a valid session.\n\
-                 Use the orchestrator to manage sessions properly."
-            ),
-            Error::StoryRequired => write!(
-                f,
-                "RALPH_STORY environment variable not set.\n\
-                 This command requires a story scope.\n\
-                 Use `session next-story` to set the current story."
-            ),
-            Error::ChangeLocked(name) => write!(
-                f,
-                "Change '{}' is locked by another session.\n\
-                 Another orchestrator may be running.",
-                name
-            ),
             Error::Io(e) => write!(f, "IO error: {}", e),
             Error::Json(e) => write!(f, "JSON error: {}", e),
             Error::Command { cmd, stderr } => {
@@ -132,9 +106,6 @@ mod tests {
         assert_eq!(Error::ChangeNotFound("x".into()).code(), "CHANGE_NOT_FOUND");
         assert_eq!(Error::TaskNotFound("1.1".into()).code(), "TASK_NOT_FOUND");
         assert_eq!(Error::StoryNotFound("1".into()).code(), "STORY_NOT_FOUND");
-        assert_eq!(Error::SessionRequired.code(), "SESSION_REQUIRED");
-        assert_eq!(Error::StoryRequired.code(), "STORY_REQUIRED");
-        assert_eq!(Error::ChangeLocked("x".into()).code(), "CHANGE_LOCKED");
     }
 
     #[test]

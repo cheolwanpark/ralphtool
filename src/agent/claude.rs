@@ -35,24 +35,15 @@ impl ClaudeAgent {
 /// Build the command-line arguments for the Claude CLI.
 /// Extracted for testability.
 fn build_command_args(prompt: &str, config: &AgentConfig) -> Vec<String> {
-    let mut args = Vec::new();
-
-    // Add prompt flag
-    args.push("-p".to_string());
-    args.push(prompt.to_string());
-
-    // Add output format
-    args.push("--output-format".to_string());
-    args.push("json".to_string());
-
-    // Add max turns
-    args.push("--max-turns".to_string());
-    args.push(config.max_turns.to_string());
-
-    // Always skip permissions for autonomous operation
-    args.push("--dangerously-skip-permissions".to_string());
-
-    args
+    vec![
+        "-p".to_string(),
+        prompt.to_string(),
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--max-turns".to_string(),
+        config.max_turns.to_string(),
+        "--dangerously-skip-permissions".to_string(),
+    ]
 }
 
 impl CodingAgent for ClaudeAgent {

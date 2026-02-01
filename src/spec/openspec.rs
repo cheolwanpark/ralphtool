@@ -3,12 +3,10 @@
 //! This adapter reads completed OpenSpec changes and converts them
 //! to spec domain types (Story, Task, Scenario).
 
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use fs2::FileExt;
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
@@ -467,130 +465,14 @@ impl SpecAdapter for OpenSpecAdapter {
         })
     }
 
-    fn mark_done(&mut self, task_id: &str) -> Result<()> {
-        // First, update in-memory state
-        let mut found = false;
-        for story in &mut self.stories {
-            for task in &mut story.tasks {
-                if task.id == task_id {
-                    task.done = true;
-                    found = true;
-                    break;
-                }
-            }
-            if found {
-                break;
-            }
-        }
-
-        if !found {
-            return Err(Error::TaskNotFound(task_id.to_string()));
-        }
-
-        // Persist to tasks.md
-        let tasks_path = self.change_dir.join("tasks.md");
-        if !tasks_path.exists() {
-            return Err(Error::Parse(format!(
-                "tasks.md not found at: {}",
-                tasks_path.display()
-            )));
-        }
-
-        // Open file with locking
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .open(&tasks_path)?;
-
-        file.lock_exclusive()
-            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
-
-        // Read content
-        let mut content = String::new();
-        {
-            let mut reader = std::io::BufReader::new(&file);
-            reader.read_to_string(&mut content)?;
-        }
-
-        // Find and replace the task checkbox
-        let unchecked = format!("- [ ] {}", task_id);
-        let checked = format!("- [x] {}", task_id);
-
-        if !content.contains(&unchecked) {
-            // Task might already be complete (idempotent)
-            if content.contains(&checked) {
-                file.unlock()
-                    .map_err(|e| Error::Io(std::io::Error::other(e)))?;
-                return Ok(());
-            }
-            file.unlock()
-                .map_err(|e| Error::Io(std::io::Error::other(e)))?;
-            return Err(Error::TaskNotFound(format!(
-                "Task '{}' not found in tasks.md",
-                task_id
-            )));
-        }
-
-        let new_content = content.replace(&unchecked, &checked);
-
-        file.unlock()
-            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
-        fs::write(&tasks_path, new_content)?;
-
-        Ok(())
-    }
-
-    fn append_learnings(&mut self, learnings: &[String]) -> Result<()> {
-        if learnings.is_empty() {
-            return Ok(());
-        }
-
-        let design_path = self.change_dir.join("design.md");
-        if !design_path.exists() {
-            return Err(Error::Parse(format!(
-                "design.md not found at: {}",
-                design_path.display()
-            )));
-        }
-
-        // Open file with locking
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .open(&design_path)?;
-
-        file.lock_exclusive()
-            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
-
-        // Read current content
-        let mut content = String::new();
-        {
-            let mut reader = std::io::BufReader::new(&file);
-            reader.read_to_string(&mut content)?;
-        }
-
-        // Check if Learnings section exists
-        if !content.contains("## Learnings") {
-            content.push_str("\n## Learnings\n");
-        }
-
-        // Format learnings
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let mut learnings_text = format!("\n### {}\n", today);
-        for learning in learnings {
-            learnings_text.push_str(&format!("- {}\n", learning));
-        }
-
-        // Append learnings
-        content.push_str(&learnings_text);
-
-        file.unlock()
-            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
-        fs::write(&design_path, content)?;
-
-        Ok(())
+    fn verify_commands(&self) -> Result<VerifyCommands> {
+        infer_verify_commands()
     }
 }
+
+// Note: mark_done and append_learnings have been removed.
+// Agents now edit tasks.md directly to mark tasks complete.
+// This simplifies the architecture by removing session management.
 
 #[cfg(test)]
 mod tests {

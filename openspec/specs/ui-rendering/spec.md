@@ -24,3 +24,15 @@ The application SHALL display instructions for how to quit (press q to exit).
 #### Scenario: Quit instructions visible
 - **WHEN** the application is running
 - **THEN** text indicating "Press q to quit" or similar is visible
+
+### Requirement: Loop execution screen
+The loop execution screen SHALL display agent output and allow user to stop the loop.
+
+#### Scenario: Display agent output
+- **WHEN** the loop execution screen is active
+- **THEN** the screen SHALL stream agent stdout to the log area
+
+#### Scenario: Display completion status
+- **WHEN** the agent completes
+- **THEN** the screen SHALL show "Loop completed" message
+- **AND** allow user to view results or return to selection

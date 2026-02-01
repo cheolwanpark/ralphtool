@@ -1,13 +1,14 @@
 //! Loop screen for displaying Ralph loop progress.
 //!
 //! This screen shows real-time progress during loop execution:
-//! - Current story being processed
-//! - Task completion progress
-//! - Agent output (if any)
+//! - Current change being processed
+//! - Agent output log
+//!
+//! The agent manages its own progress by reading/editing tasks.md directly.
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, List, ListItem},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
 use crate::ralph_loop::LoopState;
@@ -22,27 +23,19 @@ const LOOP_KEYBINDINGS: [&str; 1] = [
 pub fn render_loop_screen(frame: &mut Frame, state: &LoopState, log: &[String]) {
     let area = frame.area();
 
-    // Split into header, progress, and log sections
+    // Split into header, status, and log sections
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(5), // Header (3 content + 2 borders)
-            Constraint::Length(5), // Progress
+            Constraint::Length(3), // Status
             Constraint::Min(10),   // Log
         ])
         .split(area);
 
     // Header using shared component
     let status = if state.running { "Running" } else { "Stopped" };
-    let story_info = if let Some(ref story) = state.current_story {
-        format!("Story: {}", story)
-    } else {
-        "Waiting...".to_string()
-    };
-    let context_info = format!(
-        "{} | {} [{}]",
-        state.change_name, story_info, status
-    );
+    let context_info = format!("{} [{}]", state.change_name, status);
 
     let header_ctx = HeaderContext {
         title: "Loop Execution",
@@ -51,55 +44,25 @@ pub fn render_loop_screen(frame: &mut Frame, state: &LoopState, log: &[String]) 
     };
     render_shared_header(frame, chunks[0], &header_ctx);
 
-    // Progress
-    render_progress(frame, chunks[1], state);
+    // Status
+    render_status(frame, chunks[1], state);
 
     // Log
     render_log(frame, chunks[2], log);
 }
 
-fn render_progress(frame: &mut Frame, area: Rect, state: &LoopState) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Length(2)])
-        .margin(1)
-        .split(area);
-
-    // Story progress
-    let story_ratio = if state.stories_total > 0 {
-        state.stories_completed as f64 / state.stories_total as f64
+fn render_status(frame: &mut Frame, area: Rect, state: &LoopState) {
+    let status_text = if state.running {
+        "Agent is working on the change. Progress is tracked via tasks.md edits."
     } else {
-        0.0
+        "Agent has stopped. Check the log for details."
     };
 
-    let story_gauge = Gauge::default()
-        .block(Block::default().title("Stories"))
-        .gauge_style(Style::default().fg(Color::Green))
-        .ratio(story_ratio)
-        .label(format!(
-            "{}/{}",
-            state.stories_completed, state.stories_total
-        ));
+    let status = Paragraph::new(status_text)
+        .block(Block::default().title(" Status ").borders(Borders::ALL))
+        .style(Style::default().fg(if state.running { Color::Green } else { Color::Yellow }));
 
-    frame.render_widget(story_gauge, chunks[0]);
-
-    // Task progress
-    let task_ratio = if state.tasks_total > 0 {
-        state.tasks_completed as f64 / state.tasks_total as f64
-    } else {
-        0.0
-    };
-
-    let task_gauge = Gauge::default()
-        .block(Block::default().title("Tasks (current story)"))
-        .gauge_style(Style::default().fg(Color::Cyan))
-        .ratio(task_ratio)
-        .label(format!(
-            "{}/{}",
-            state.tasks_completed, state.tasks_total
-        ));
-
-    frame.render_widget(task_gauge, chunks[1]);
+    frame.render_widget(status, area);
 }
 
 fn render_log(frame: &mut Frame, area: Rect, log: &[String]) {

@@ -38,6 +38,7 @@ pub struct AgentConfig {
     pub env: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 impl AgentConfig {
     /// Create a new AgentConfig with default values.
     pub fn new() -> Self {
