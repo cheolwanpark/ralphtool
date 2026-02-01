@@ -136,10 +136,17 @@ impl OpenSpecAdapter {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    // Track capability name (the folder name)
+                    let capability = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+
                     let spec_file = path.join("spec.md");
                     if spec_file.exists() {
                         let content = fs::read_to_string(&spec_file)?;
-                        let parsed = parse_spec_md(&content)?;
+                        let parsed = parse_spec_md(&content, &capability)?;
                         scenarios.extend(parsed);
                     }
                 }
@@ -259,11 +266,11 @@ fn parse_task_line(line: &str) -> Option<Task> {
 /// Parses a spec.md file into Scenarios.
 ///
 /// Format:
-/// - `### Requirement: Name` → Story ID derived from name
+/// - `### Requirement: Name` → Requirement ID derived from name
 /// - `#### Scenario: Name` → Scenario (belongs to preceding requirement)
-fn parse_spec_md(content: &str) -> Result<Vec<Scenario>> {
+fn parse_spec_md(content: &str, capability: &str) -> Result<Vec<Scenario>> {
     let mut scenarios = Vec::new();
-    let mut current_story_id = String::new();
+    let mut current_requirement_id = String::new();
     let mut current_scenario: Option<(String, Vec<String>, String, Vec<String>)> = None;
     let mut in_scenario = false;
 
@@ -276,16 +283,17 @@ fn parse_spec_md(content: &str) -> Result<Vec<Scenario>> {
             if let Some((name, given, when, then)) = current_scenario.take() {
                 scenarios.push(Scenario {
                     name,
-                    story_id: current_story_id.clone(),
+                    capability: capability.to_string(),
+                    requirement_id: current_requirement_id.clone(),
                     given,
                     when,
                     then,
                 });
             }
 
-            // Derive story_id from requirement name
+            // Derive requirement_id from requirement name
             let title = rest.trim();
-            current_story_id = title
+            current_requirement_id = title
                 .to_lowercase()
                 .replace(' ', "-")
                 .chars()
@@ -299,7 +307,8 @@ fn parse_spec_md(content: &str) -> Result<Vec<Scenario>> {
             if let Some((name, given, when, then)) = current_scenario.take() {
                 scenarios.push(Scenario {
                     name,
-                    story_id: current_story_id.clone(),
+                    capability: capability.to_string(),
+                    requirement_id: current_requirement_id.clone(),
                     given,
                     when,
                     then,
@@ -341,7 +350,8 @@ fn parse_spec_md(content: &str) -> Result<Vec<Scenario>> {
     if let Some((name, given, when, then)) = current_scenario.take() {
         scenarios.push(Scenario {
             name,
-            story_id: current_story_id,
+            capability: capability.to_string(),
+            requirement_id: current_requirement_id,
             given,
             when,
             then,

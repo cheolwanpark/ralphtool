@@ -48,8 +48,10 @@ impl Story {
 pub struct Scenario {
     /// Name of the scenario.
     pub name: String,
-    /// Story ID this scenario belongs to (for grouping).
-    pub story_id: String,
+    /// Capability this scenario belongs to (spec folder name, e.g., "ralph-loop").
+    pub capability: String,
+    /// Requirement ID this scenario belongs to (slugified requirement name).
+    pub requirement_id: String,
     /// Preconditions (Given steps).
     pub given: Vec<String>,
     /// Action being taken (When step).
@@ -239,15 +241,17 @@ mod tests {
     }
 
     #[test]
-    fn scenario_has_story_id() {
+    fn scenario_has_capability_and_requirement_id() {
         let scenario = Scenario {
             name: "Successful login".to_string(),
-            story_id: "auth-flow".to_string(),
+            capability: "auth".to_string(),
+            requirement_id: "auth-flow".to_string(),
             given: vec!["User exists".to_string()],
             when: "User enters valid credentials".to_string(),
             then: vec!["User is logged in".to_string()],
         };
-        assert_eq!(scenario.story_id, "auth-flow");
+        assert_eq!(scenario.capability, "auth");
+        assert_eq!(scenario.requirement_id, "auth-flow");
         assert_eq!(scenario.given.len(), 1);
         assert!(!scenario.when.is_empty());
         assert_eq!(scenario.then.len(), 1);

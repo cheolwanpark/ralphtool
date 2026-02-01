@@ -127,7 +127,8 @@ mod tests {
             design: "This is the design.".to_string(),
             scenarios: vec![Scenario {
                 name: "Test scenario".to_string(),
-                story_id: "1".to_string(),
+                capability: "test-capability".to_string(),
+                requirement_id: "test-requirement".to_string(),
                 given: vec!["Precondition".to_string()],
                 when: "Action happens".to_string(),
                 then: vec!["Expected result".to_string()],

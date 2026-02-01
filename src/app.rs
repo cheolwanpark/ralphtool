@@ -168,12 +168,24 @@ impl App {
         // Preserve selected_index for when user returns
     }
 
-    /// Returns scenarios that belong to a specific story.
-    pub fn scenarios_for_story(&self, story_id: &str) -> Vec<&Scenario> {
+    /// Returns scenarios that belong to a specific capability.
+    pub fn scenarios_for_capability(&self, capability: &str) -> Vec<&Scenario> {
         self.scenarios
             .iter()
-            .filter(|scenario| scenario.story_id == story_id)
+            .filter(|scenario| scenario.capability == capability)
             .collect()
+    }
+
+    /// Returns a sorted list of unique capability names from all scenarios.
+    pub fn unique_capabilities(&self) -> Vec<String> {
+        let mut capabilities: Vec<String> = self
+            .scenarios
+            .iter()
+            .map(|s| s.capability.clone())
+            .collect();
+        capabilities.sort();
+        capabilities.dedup();
+        capabilities
     }
 
     /// Moves selection up in the change list.

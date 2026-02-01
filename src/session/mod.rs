@@ -7,7 +7,7 @@
 
 pub mod cli;
 pub mod instructions;
-pub mod session;
+pub mod state;
 
 use serde::Serialize;
 
@@ -44,7 +44,7 @@ impl ErrorResponse {
 /// On error, outputs a consistent JSON error response to stderr.
 pub fn run(command: AgentCommand) -> anyhow::Result<()> {
     let result = match command {
-        AgentCommand::Session(cmd) => session::run(cmd),
+        AgentCommand::Session(cmd) => state::run(cmd),
         AgentCommand::Context => run_context(),
         AgentCommand::Task(cmd) => run_task(cmd),
         AgentCommand::Status => run_status(),
@@ -91,7 +91,8 @@ pub struct TaskContext {
 #[derive(Debug, Serialize)]
 pub struct ScenarioContext {
     pub name: String,
-    pub story_id: String,
+    pub capability: String,
+    pub requirement_id: String,
     pub given: Vec<String>,
     pub when: String,
     pub then: Vec<String>,
@@ -104,9 +105,9 @@ pub struct VerifyContext {
 }
 
 fn run_context() -> Result<()> {
-    let session_id = session::get_session_id()?;
-    let story_id = session::get_story_id()?;
-    let session = session::load(&session_id)?;
+    let session_id = state::get_session_id()?;
+    let story_id = state::get_story_id()?;
+    let session = state::load(&session_id)?;
 
     let adapter = spec::create_adapter(&session.change)?;
     let context = adapter.context(&story_id)?;
@@ -133,7 +134,8 @@ fn run_context() -> Result<()> {
             .iter()
             .map(|s| ScenarioContext {
                 name: s.name.clone(),
-                story_id: s.story_id.clone(),
+                capability: s.capability.clone(),
+                requirement_id: s.requirement_id.clone(),
                 given: s.given.clone(),
                 when: s.when.clone(),
                 then: s.then.clone(),
@@ -172,9 +174,9 @@ fn run_task(command: TaskCommand) -> Result<()> {
 }
 
 fn run_task_done(task_id: &str) -> Result<()> {
-    let session_id = session::get_session_id()?;
-    let story_id = session::get_story_id()?;
-    let session = session::load(&session_id)?;
+    let session_id = state::get_session_id()?;
+    let story_id = state::get_story_id()?;
+    let session = state::load(&session_id)?;
 
     // Validate the task belongs to the current story
     if !task_id.starts_with(&format!("{}.", story_id)) {
@@ -243,8 +245,8 @@ pub struct ChangeStatus {
 }
 
 fn run_status() -> Result<()> {
-    let session_id = session::get_session_id()?;
-    let session = session::load(&session_id)?;
+    let session_id = state::get_session_id()?;
+    let session = state::load(&session_id)?;
     let story_id = std::env::var("RALPH_STORY").ok();
 
     let adapter = spec::create_adapter(&session.change)?;
@@ -333,15 +335,15 @@ pub struct LearnResponse {
 }
 
 fn run_learn(args: LearnArgs) -> Result<()> {
-    let session_id = session::get_session_id()?;
-    let mut session = session::load(&session_id)?;
+    let session_id = state::get_session_id()?;
+    let mut session = state::load(&session_id)?;
 
     // Add learning to session
     session.learnings.push(args.description.clone());
     let total = session.learnings.len();
 
     // Save session
-    session::save(&session)?;
+    state::save(&session)?;
 
     let response = LearnResponse {
         success: true,

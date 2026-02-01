@@ -21,41 +21,42 @@ The Tasks tab SHALL display the full task hierarchy from the selected change.
 - **THEN** completed tasks SHALL show a checkmark or [x] indicator
 - **AND** incomplete tasks SHALL show an empty checkbox or [ ] indicator
 
-### Requirement: Display user stories with nested scenarios
-The User Stories tab SHALL display user stories with their scenarios nested underneath.
+### Requirement: Display scenarios grouped by capability
 
-#### Scenario: User Stories tab shows story list
-- **WHEN** the User Stories tab is active
-- **THEN** all user stories SHALL be displayed
+The Scenarios tab SHALL display scenarios organized by their source capability.
 
-#### Scenario: User Stories tab shows story details
-- **WHEN** a user story is displayed in the User Stories tab
-- **THEN** the story title SHALL be shown
-- **AND** the story description SHALL be shown if present
+#### Scenario: Scenarios tab shows capability groupings
 
-#### Scenario: Scenarios nested under user stories
-- **WHEN** a user story is displayed in the User Stories tab
-- **THEN** all scenarios belonging to that user story SHALL be displayed underneath it
-- **AND** scenarios SHALL be visually indented to show the parent-child relationship
+- **WHEN** the Scenarios tab is active
+- **THEN** capability names SHALL be displayed as section headers
+- **AND** capabilities SHALL be listed in alphabetical order
+
+#### Scenario: Scenarios listed under capability
+
+- **WHEN** a capability section is displayed
+- **THEN** all scenarios from that capability SHALL be listed beneath it
+- **AND** scenarios SHALL be grouped by their requirement within the capability
+
+#### Scenario: Requirement sub-headers
+
+- **WHEN** scenarios are displayed under a capability
+- **THEN** requirement names SHALL appear as sub-headers
+- **AND** scenarios belonging to each requirement SHALL be indented under their requirement
 
 #### Scenario: Scenario structure display
-- **WHEN** a scenario is displayed under its user story
+
+- **WHEN** a scenario is displayed under its requirement
 - **THEN** the scenario name SHALL be shown
 - **AND** GIVEN steps SHALL be listed
 - **AND** the WHEN step SHALL be shown
 - **AND** THEN steps SHALL be listed
-
-#### Scenario: User story without scenarios
-- **WHEN** a user story has no associated scenarios
-- **THEN** the user story SHALL still be displayed
-- **AND** no scenario section SHALL appear under it
 
 ### Requirement: Screen layout
 The screen SHALL organize information in a readable layout.
 
 #### Scenario: Tabbed display
 - **WHEN** the preview screen is displayed
-- **THEN** content SHALL be organized into tabs: Tasks and User Stories
+- **THEN** content SHALL be organized into tabs: Tasks and Scenarios
 
 #### Scenario: Tab bar position
 - **WHEN** the preview screen is displayed

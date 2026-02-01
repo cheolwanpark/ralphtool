@@ -141,107 +141,79 @@ fn render_tasks_tab(app: &App) -> Vec<Line<'_>> {
     lines
 }
 
-fn render_scenarios_tab(app: &App) -> Vec<Line<'_>> {
-    let mut lines: Vec<Line> = Vec::new();
+fn render_scenarios_tab(app: &App) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = Vec::new();
 
-    // Group scenarios by story_id
-    for story in &app.stories {
-        let scenarios = app.scenarios_for_story(&story.id);
+    // Group scenarios by capability (alphabetically sorted)
+    for capability in app.unique_capabilities() {
+        let scenarios = app.scenarios_for_capability(&capability);
         if scenarios.is_empty() {
             continue;
         }
 
-        // Story header
+        // Capability header
         lines.push(Line::from(vec![
             Span::styled("▸ ", Style::default().fg(Color::Yellow)),
             Span::styled(
-                format!("Story {}: {}", story.id, story.title),
+                capability.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
         ]));
 
-        for scenario in scenarios {
-            // Scenario header (indented under story)
+        // Group scenarios by requirement_id within capability
+        let mut requirements: Vec<String> = scenarios
+            .iter()
+            .map(|s| s.requirement_id.clone())
+            .collect();
+        requirements.sort();
+        requirements.dedup();
+
+        for requirement_id in requirements {
+            // Requirement sub-header
             lines.push(Line::from(vec![
                 Span::raw("    "),
-                Span::styled("◦ ", Style::default().fg(Color::Magenta)),
-                Span::styled(&scenario.name, Style::default().fg(Color::Cyan)),
+                Span::styled("● ", Style::default().fg(Color::Cyan)),
+                Span::styled(requirement_id.clone(), Style::default().fg(Color::White)),
             ]));
 
-            // Given steps
-            for given in &scenario.given {
+            // Scenarios under this requirement
+            for scenario in scenarios.iter().filter(|s| s.requirement_id == requirement_id) {
+                // Scenario header (indented under requirement)
                 lines.push(Line::from(vec![
                     Span::raw("        "),
-                    Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
-                    Span::raw(given.as_str()),
+                    Span::styled("◦ ", Style::default().fg(Color::Magenta)),
+                    Span::styled(scenario.name.clone(), Style::default().fg(Color::Cyan)),
                 ]));
-            }
 
-            // When step
-            if !scenario.when.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::raw("        "),
-                    Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
-                    Span::raw(scenario.when.as_str()),
-                ]));
-            }
+                // Given steps
+                for given in &scenario.given {
+                    lines.push(Line::from(vec![
+                        Span::raw("            "),
+                        Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
+                        Span::raw(given.clone()),
+                    ]));
+                }
 
-            // Then steps
-            for then in &scenario.then {
-                lines.push(Line::from(vec![
-                    Span::raw("        "),
-                    Span::styled("THEN ", Style::default().fg(Color::Green)),
-                    Span::raw(then.as_str()),
-                ]));
+                // When step
+                if !scenario.when.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("            "),
+                        Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
+                        Span::raw(scenario.when.clone()),
+                    ]));
+                }
+
+                // Then steps
+                for then in &scenario.then {
+                    lines.push(Line::from(vec![
+                        Span::raw("            "),
+                        Span::styled("THEN ", Style::default().fg(Color::Green)),
+                        Span::raw(then.clone()),
+                    ]));
+                }
             }
         }
 
-        lines.push(Line::from(""));
-    }
-
-    // Also show scenarios that don't match any story
-    let unmatched: Vec<_> = app.scenarios.iter()
-        .filter(|s| !app.stories.iter().any(|story| story.id == s.story_id))
-        .collect();
-
-    if !unmatched.is_empty() {
-        lines.push(Line::from(vec![
-            Span::styled("▸ ", Style::default().fg(Color::Yellow)),
-            Span::styled("Unmatched Scenarios", Style::default().add_modifier(Modifier::BOLD)),
-        ]));
-
-        for scenario in unmatched {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled("◦ ", Style::default().fg(Color::Magenta)),
-                Span::styled(&scenario.name, Style::default().fg(Color::Cyan)),
-                Span::styled(format!(" ({})", scenario.story_id), Style::default().fg(Color::DarkGray)),
-            ]));
-
-            for given in &scenario.given {
-                lines.push(Line::from(vec![
-                    Span::raw("        "),
-                    Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
-                    Span::raw(given.as_str()),
-                ]));
-            }
-
-            if !scenario.when.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::raw("        "),
-                    Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
-                    Span::raw(scenario.when.as_str()),
-                ]));
-            }
-
-            for then in &scenario.then {
-                lines.push(Line::from(vec![
-                    Span::raw("        "),
-                    Span::styled("THEN ", Style::default().fg(Color::Green)),
-                    Span::raw(then.as_str()),
-                ]));
-            }
-        }
         lines.push(Line::from(""));
     }
 
