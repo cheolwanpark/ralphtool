@@ -58,23 +58,6 @@ pub enum AgentCommand {
 
     /// Record a learning
     Learn(LearnArgs),
-
-    /// Record a pattern
-    Pattern(PatternArgs),
-
-    /// Verification commands for the verification agent phase
-    #[command(subcommand)]
-    Verify(VerifyCommand),
-}
-
-/// Verify subcommands for verification agent.
-#[derive(Subcommand)]
-pub enum VerifyCommand {
-    /// Get verification context (all requirements, scenarios, completed tasks)
-    Context,
-
-    /// Mark the current story as verified/passed
-    Pass,
 }
 
 /// Session lifecycle commands (used by orchestrator).
@@ -116,19 +99,5 @@ pub struct TaskDoneArgs {
 #[derive(Parser)]
 pub struct LearnArgs {
     /// Learning description
-    pub description: String,
-
-    /// Optional task ID this learning relates to
-    #[arg(long)]
-    pub task: Option<String>,
-}
-
-/// Arguments for pattern command.
-#[derive(Parser)]
-pub struct PatternArgs {
-    /// Pattern name
-    pub name: String,
-
-    /// Pattern description
     pub description: String,
 }

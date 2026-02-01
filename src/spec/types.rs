@@ -7,18 +7,18 @@
 /// A single actionable task within the Ralph workflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
-    /// Unique identifier for the task.
+    /// Unique identifier for the task (e.g., "1.1").
     pub id: String,
     /// Description of what needs to be done.
     pub description: String,
     /// Whether the task has been completed.
-    pub complete: bool,
+    pub done: bool,
 }
 
 /// A story containing related tasks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Story {
-    /// Unique identifier for the story.
+    /// Unique identifier for the story (e.g., "1").
     pub id: String,
     /// Title of the story.
     pub title: String,
@@ -26,39 +26,17 @@ pub struct Story {
     pub tasks: Vec<Task>,
 }
 
+impl Story {
+    /// Returns true if all tasks in this story are complete.
+    pub fn is_complete(&self) -> bool {
+        !self.tasks.is_empty() && self.tasks.iter().all(|t| t.done)
+    }
 
-// ============================================================================
-// Story Types
-// ============================================================================
-
-/// Priority level for user stories.
-///
-/// Variants are ordered so that `High > Medium > Low`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Priority {
-    /// Lowest priority - can be deferred.
-    Low,
-    /// Normal priority.
-    Medium,
-    /// Highest priority - must be done first.
-    High,
-}
-
-/// A user story with acceptance criteria and priority.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UserStory {
-    /// Unique identifier for the story.
-    pub id: String,
-    /// Title of the story.
-    pub title: String,
-    /// Detailed description of the story.
-    pub description: String,
-    /// List of acceptance criteria that must be satisfied.
-    pub acceptance_criteria: Vec<String>,
-    /// Priority level of this story.
-    pub priority: Priority,
-    /// Whether the story has passed verification.
-    pub passed: bool,
+    /// Returns the next incomplete task, if any.
+    #[allow(dead_code)]
+    pub fn next_task(&self) -> Option<&Task> {
+        self.tasks.iter().find(|t| !t.done)
+    }
 }
 
 // ============================================================================
@@ -70,12 +48,42 @@ pub struct UserStory {
 pub struct Scenario {
     /// Name of the scenario.
     pub name: String,
+    /// Story ID this scenario belongs to (for grouping).
+    pub story_id: String,
     /// Preconditions (Given steps).
     pub given: Vec<String>,
     /// Action being taken (When step).
     pub when: String,
     /// Expected outcomes (Then steps).
     pub then: Vec<String>,
+}
+
+// ============================================================================
+// Context Type
+// ============================================================================
+
+/// Verification commands for a project.
+#[derive(Debug, Clone)]
+pub struct VerifyCommands {
+    /// Static check commands (e.g., cargo check, cargo clippy).
+    pub checks: Vec<String>,
+    /// Test command pattern.
+    pub tests: String,
+}
+
+/// Complete context needed by an agent to work on a story.
+#[derive(Debug, Clone)]
+pub struct Context {
+    /// Current story information.
+    pub story: Story,
+    /// Proposal content.
+    pub proposal: String,
+    /// Design content.
+    pub design: String,
+    /// Scenarios relevant to this story.
+    pub scenarios: Vec<Scenario>,
+    /// Verification commands.
+    pub verify: VerifyCommands,
 }
 
 // ============================================================================
@@ -86,17 +94,16 @@ pub struct Scenario {
 mod tests {
     use super::*;
 
-    // Task hierarchy tests
     #[test]
     fn task_has_required_fields() {
         let task = Task {
-            id: "task-1".to_string(),
+            id: "1.1".to_string(),
             description: "Implement feature X".to_string(),
-            complete: false,
+            done: false,
         };
-        assert_eq!(task.id, "task-1");
+        assert_eq!(task.id, "1.1");
         assert_eq!(task.description, "Implement feature X");
-        assert!(!task.complete);
+        assert!(!task.done);
     }
 
     #[test]
@@ -104,97 +111,145 @@ mod tests {
         let incomplete = Task {
             id: "t1".to_string(),
             description: "Do something".to_string(),
-            complete: false,
+            done: false,
         };
         let complete = Task {
             id: "t2".to_string(),
             description: "Done thing".to_string(),
-            complete: true,
+            done: true,
         };
-        assert!(!incomplete.complete);
-        assert!(complete.complete);
+        assert!(!incomplete.done);
+        assert!(complete.done);
     }
 
     #[test]
     fn story_contains_tasks() {
         let story = Story {
-            id: "story-1".to_string(),
+            id: "1".to_string(),
             title: "User can login".to_string(),
             tasks: vec![
                 Task {
-                    id: "t1".to_string(),
+                    id: "1.1".to_string(),
                     description: "Create login form".to_string(),
-                    complete: false,
+                    done: false,
                 },
                 Task {
-                    id: "t2".to_string(),
+                    id: "1.2".to_string(),
                     description: "Validate credentials".to_string(),
-                    complete: false,
+                    done: false,
                 },
             ],
         };
-        assert_eq!(story.id, "story-1");
+        assert_eq!(story.id, "1");
         assert_eq!(story.title, "User can login");
         assert_eq!(story.tasks.len(), 2);
     }
 
     #[test]
-    fn story_can_have_no_tasks() {
+    fn story_is_complete_when_all_tasks_done() {
         let story = Story {
-            id: "empty".to_string(),
+            id: "1".to_string(),
+            title: "Complete story".to_string(),
+            tasks: vec![
+                Task {
+                    id: "1.1".to_string(),
+                    description: "Task 1".to_string(),
+                    done: true,
+                },
+                Task {
+                    id: "1.2".to_string(),
+                    description: "Task 2".to_string(),
+                    done: true,
+                },
+            ],
+        };
+        assert!(story.is_complete());
+    }
+
+    #[test]
+    fn story_is_not_complete_when_tasks_pending() {
+        let story = Story {
+            id: "1".to_string(),
+            title: "Incomplete story".to_string(),
+            tasks: vec![
+                Task {
+                    id: "1.1".to_string(),
+                    description: "Task 1".to_string(),
+                    done: true,
+                },
+                Task {
+                    id: "1.2".to_string(),
+                    description: "Task 2".to_string(),
+                    done: false,
+                },
+            ],
+        };
+        assert!(!story.is_complete());
+    }
+
+    #[test]
+    fn story_is_not_complete_when_empty() {
+        let story = Story {
+            id: "1".to_string(),
             title: "Empty story".to_string(),
             tasks: vec![],
         };
-        assert!(story.tasks.is_empty());
-    }
-
-    // Story types tests
-    #[test]
-    fn priority_ordering() {
-        assert!(Priority::High > Priority::Medium);
-        assert!(Priority::Medium > Priority::Low);
-        assert!(Priority::High > Priority::Low);
+        assert!(!story.is_complete());
     }
 
     #[test]
-    fn user_story_has_all_fields() {
-        let story = UserStory {
-            id: "us-1".to_string(),
-            title: "User registration".to_string(),
-            description: "As a user, I want to register".to_string(),
-            acceptance_criteria: vec![
-                "Email is validated".to_string(),
-                "Password meets requirements".to_string(),
+    fn story_next_task_returns_first_incomplete() {
+        let story = Story {
+            id: "1".to_string(),
+            title: "Story".to_string(),
+            tasks: vec![
+                Task {
+                    id: "1.1".to_string(),
+                    description: "Done task".to_string(),
+                    done: true,
+                },
+                Task {
+                    id: "1.2".to_string(),
+                    description: "Pending task".to_string(),
+                    done: false,
+                },
+                Task {
+                    id: "1.3".to_string(),
+                    description: "Another pending".to_string(),
+                    done: false,
+                },
             ],
-            priority: Priority::High,
-            passed: false,
         };
-        assert_eq!(story.id, "us-1");
-        assert_eq!(story.title, "User registration");
-        assert!(!story.description.is_empty());
-        assert_eq!(story.acceptance_criteria.len(), 2);
-        assert_eq!(story.priority, Priority::High);
-        assert!(!story.passed);
+        let next = story.next_task().unwrap();
+        assert_eq!(next.id, "1.2");
     }
 
-    // Verification types tests
     #[test]
-    fn scenario_has_given_when_then() {
+    fn story_next_task_returns_none_when_all_complete() {
+        let story = Story {
+            id: "1".to_string(),
+            title: "Story".to_string(),
+            tasks: vec![Task {
+                id: "1.1".to_string(),
+                description: "Done task".to_string(),
+                done: true,
+            }],
+        };
+        assert!(story.next_task().is_none());
+    }
+
+    #[test]
+    fn scenario_has_story_id() {
         let scenario = Scenario {
             name: "Successful login".to_string(),
-            given: vec![
-                "User exists".to_string(),
-                "User is on login page".to_string(),
-            ],
+            story_id: "auth-flow".to_string(),
+            given: vec!["User exists".to_string()],
             when: "User enters valid credentials".to_string(),
-            then: vec![
-                "User is redirected to dashboard".to_string(),
-                "Session is created".to_string(),
-            ],
+            then: vec!["User is logged in".to_string()],
         };
-        assert_eq!(scenario.name, "Successful login");
-        assert_eq!(scenario.given.len(), 2);
+        assert_eq!(scenario.story_id, "auth-flow");
+        assert_eq!(scenario.given.len(), 1);
         assert!(!scenario.when.is_empty());
-        assert_eq!(scenario.then.len(), 2);
+        assert_eq!(scenario.then.len(), 1);
     }
 }

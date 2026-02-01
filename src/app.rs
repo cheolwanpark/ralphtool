@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
-use crate::spec::{Scenario, Story, UserStory};
+use crate::spec::{Scenario, Story};
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
+use crate::spec::SpecAdapter;
 use anyhow::Result;
 
 /// The current screen being displayed.
@@ -18,7 +17,7 @@ pub enum Screen {
 pub enum PreviewTab {
     #[default]
     Tasks,
-    UserStories,
+    Scenarios,
 }
 
 pub struct App {
@@ -29,8 +28,6 @@ pub struct App {
     pub selected_change_name: Option<String>,
     /// Loaded stories from the selected change.
     pub stories: Vec<Story>,
-    /// Loaded user stories from the selected change.
-    pub user_stories: Vec<UserStory>,
     /// Loaded scenarios from the selected change.
     pub scenarios: Vec<Scenario>,
     /// List of available changes for selection.
@@ -43,10 +40,8 @@ pub struct App {
     pub active_tab: PreviewTab,
     /// Scroll offset for the Tasks tab.
     pub tasks_scroll_offset: usize,
-    /// Scroll offset for the User Stories tab.
-    pub user_stories_scroll_offset: usize,
-    /// Maps scenario name to user story ID for nesting scenarios under stories.
-    pub scenario_to_story: HashMap<String, String>,
+    /// Scroll offset for the Scenarios tab.
+    pub scenarios_scroll_offset: usize,
 }
 
 impl App {
@@ -56,15 +51,13 @@ impl App {
             screen: Screen::ChangeSelection,
             selected_change_name: None,
             stories: Vec::new(),
-            user_stories: Vec::new(),
             scenarios: Vec::new(),
             available_changes: Vec::new(),
             selected_index: 0,
             scroll_offset: 0,
             active_tab: PreviewTab::default(),
             tasks_scroll_offset: 0,
-            user_stories_scroll_offset: 0,
-            scenario_to_story: HashMap::new(),
+            scenarios_scroll_offset: 0,
         }
     }
 
@@ -74,10 +67,13 @@ impl App {
 
     /// Loads the list of available changes.
     pub fn load_changes(&mut self) -> Result<()> {
-        self.available_changes = OpenSpecAdapter::list_changes()?;
+        self.available_changes = OpenSpecAdapter::list_changes()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
         // Filter to only show completed changes
         self.available_changes.retain(|c| {
-            OpenSpecAdapter::is_complete(&c.name).unwrap_or(false)
+            OpenSpecAdapter::is_complete(&c.name)
+                .map_err(|e| anyhow::anyhow!("{}", e))
+                .unwrap_or(false)
         });
         Ok(())
     }
@@ -85,11 +81,12 @@ impl App {
     /// Loads data from the selected change.
     pub fn load_selected_change(&mut self) -> Result<()> {
         if let Some(ref name) = self.selected_change_name {
-            let adapter = OpenSpecAdapter::new(name)?;
-            self.stories = adapter.list_tasks()?;
-            self.user_stories = adapter.list_stories()?;
-            self.scenarios = adapter.list_scenarios()?;
-            self.scenario_to_story = adapter.scenario_to_story_map().clone();
+            let adapter = OpenSpecAdapter::new(name)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            self.stories = adapter.stories()
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            self.scenarios = adapter.scenarios()
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
         Ok(())
     }
@@ -111,15 +108,11 @@ impl App {
         // Preserve selected_index for when user returns
     }
 
-    /// Returns scenarios that belong to a specific user story.
+    /// Returns scenarios that belong to a specific story.
     pub fn scenarios_for_story(&self, story_id: &str) -> Vec<&Scenario> {
         self.scenarios
             .iter()
-            .filter(|scenario| {
-                self.scenario_to_story
-                    .get(&scenario.name)
-                    .is_some_and(|sid| sid == story_id)
-            })
+            .filter(|scenario| scenario.story_id == story_id)
             .collect()
     }
 
@@ -145,7 +138,7 @@ impl App {
     fn current_scroll_offset(&mut self) -> &mut usize {
         match self.active_tab {
             PreviewTab::Tasks => &mut self.tasks_scroll_offset,
-            PreviewTab::UserStories => &mut self.user_stories_scroll_offset,
+            PreviewTab::Scenarios => &mut self.scenarios_scroll_offset,
         }
     }
 
@@ -153,7 +146,7 @@ impl App {
     pub fn get_scroll_offset(&self) -> usize {
         match self.active_tab {
             PreviewTab::Tasks => self.tasks_scroll_offset,
-            PreviewTab::UserStories => self.user_stories_scroll_offset,
+            PreviewTab::Scenarios => self.scenarios_scroll_offset,
         }
     }
 
@@ -184,19 +177,16 @@ impl App {
     /// Switches to the next tab in the preview screen.
     pub fn switch_to_next_tab(&mut self) {
         self.active_tab = match self.active_tab {
-            PreviewTab::Tasks => PreviewTab::UserStories,
-            PreviewTab::UserStories => PreviewTab::Tasks,
+            PreviewTab::Tasks => PreviewTab::Scenarios,
+            PreviewTab::Scenarios => PreviewTab::Tasks,
         };
     }
 
     /// Switches to the previous tab in the preview screen.
     pub fn switch_to_previous_tab(&mut self) {
         self.active_tab = match self.active_tab {
-            PreviewTab::Tasks => PreviewTab::UserStories,
-            PreviewTab::UserStories => PreviewTab::Tasks,
+            PreviewTab::Tasks => PreviewTab::Scenarios,
+            PreviewTab::Scenarios => PreviewTab::Tasks,
         };
     }
 }
-
-// Import traits for method resolution
-use crate::spec::{StorySource, TaskSource, ScenarioSource};

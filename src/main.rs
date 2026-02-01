@@ -1,5 +1,6 @@
 mod agent;
 mod app;
+mod error;
 mod event;
 mod spec;
 mod ui;

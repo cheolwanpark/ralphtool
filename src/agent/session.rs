@@ -7,15 +7,15 @@
 //! - Cleaned up via `session flush` at end of run
 
 use std::fs::{self, File};
+use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Utc};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::agent::cli::{SessionCommand, SessionInitArgs};
-use crate::spec::openspec::OpenSpecAdapter;
+use crate::error::{Error, Result};
+use crate::spec;
 
 /// Session state stored in temp directory.
 ///
@@ -24,63 +24,18 @@ use crate::spec::openspec::OpenSpecAdapter;
 /// Contains all state accumulated during a Ralph Loop run that needs
 /// to persist across agent spawns but shouldn't be committed until flush.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionState {
+pub struct Session {
     /// Unique identifier for this session (UUID v4).
-    pub session_id: String,
+    pub id: String,
 
     /// Name of the change being worked on.
-    pub change_name: String,
+    pub change: String,
 
     /// Current story being worked on (set by `session next-story`).
-    pub current_story_id: Option<String>,
-
-    /// ISO 8601 timestamp when session was created.
-    pub created_at: String,
-
-    /// Learnings accumulated during this session (not yet written to design.md).
-    pub learnings: Vec<SessionLearning>,
-
-    /// Patterns accumulated during this session (not yet written to design.md).
-    #[serde(default)]
-    pub patterns: Vec<SessionPattern>,
-
-    /// Task IDs completed during this session.
-    pub completed_tasks: Vec<String>,
-}
-
-/// A learning recorded during the session.
-///
-/// Learnings are buffered in session state and flushed to design.md
-/// when the session ends.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionLearning {
-    /// Description of what was learned.
-    pub description: String,
-
-    /// Optional task ID this learning relates to.
-    pub task_id: Option<String>,
-
-    /// Story ID when this learning was recorded.
     pub story_id: Option<String>,
 
-    /// ISO 8601 timestamp when learning was recorded.
-    pub timestamp: String,
-}
-
-/// A reusable pattern discovered in the codebase.
-///
-/// Patterns are buffered in session state and flushed to design.md
-/// when the session ends.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionPattern {
-    /// Name identifying the pattern.
-    pub name: String,
-
-    /// Description of the pattern and how to use it.
-    pub description: String,
-
-    /// ISO 8601 timestamp when pattern was recorded.
-    pub timestamp: String,
+    /// Learnings accumulated during this session (not yet written to design.md).
+    pub learnings: Vec<String>,
 }
 
 /// Response from `session init` command.
@@ -118,7 +73,6 @@ pub struct NextStoryResponse {
 pub struct FlushResponse {
     pub success: bool,
     pub learnings_written: usize,
-    pub patterns_written: usize,
 }
 
 /// Runs a session subcommand.
@@ -134,8 +88,7 @@ fn run_init(args: SessionInitArgs) -> Result<()> {
     let change_name = &args.change;
 
     // Verify the change exists by loading the adapter
-    let adapter = OpenSpecAdapter::new(change_name)
-        .with_context(|| format!("Change '{}' not found", change_name))?;
+    let adapter = spec::create_adapter(change_name)?;
 
     // Acquire exclusive lock on the change
     let lock_path = lock_file_path(change_name);
@@ -143,44 +96,32 @@ fn run_init(args: SessionInitArgs) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let lock_file = File::create(&lock_path)
-        .with_context(|| format!("Failed to create lock file: {}", lock_path.display()))?;
+    let lock_file = File::create(&lock_path)?;
 
     // Try to acquire exclusive lock (non-blocking)
-    lock_file.try_lock_exclusive().map_err(|_| {
-        anyhow!(
-            "Change '{}' is locked by another session.\n\
-             Another orchestrator may be running. Wait for it to complete or manually remove the lock file at:\n\
-             {}",
-            change_name,
-            lock_path.display()
-        )
-    })?;
+    lock_file
+        .try_lock_exclusive()
+        .map_err(|_| Error::ChangeLocked(change_name.to_string()))?;
 
     // Create session state
     let session_id = Uuid::new_v4().to_string();
-    let now: DateTime<Utc> = Utc::now();
 
-    let state = SessionState {
-        session_id: session_id.clone(),
-        change_name: change_name.to_string(),
-        current_story_id: None,
-        created_at: now.to_rfc3339(),
+    let session = Session {
+        id: session_id.clone(),
+        change: change_name.to_string(),
+        story_id: None,
         learnings: Vec::new(),
-        patterns: Vec::new(),
-        completed_tasks: Vec::new(),
     };
 
     // Save session state
-    save_session(&state)?;
+    save(&session)?;
 
     // Build story info from adapter
-    use crate::spec::TaskSource;
-    let stories = adapter.list_tasks()?;
+    let stories = adapter.stories()?;
     let story_infos: Vec<StoryInfo> = stories
         .iter()
         .map(|s| {
-            let tasks_done = s.tasks.iter().filter(|t| t.complete).count();
+            let tasks_done = s.tasks.iter().filter(|t| t.done).count();
             StoryInfo {
                 id: s.id.clone(),
                 title: s.title.clone(),
@@ -203,25 +144,20 @@ fn run_init(args: SessionInitArgs) -> Result<()> {
 
 fn run_next_story() -> Result<()> {
     let session_id = get_session_id()?;
-    let mut state = load_session(&session_id)?;
+    let mut session = load(&session_id)?;
 
     // Load the adapter to get story information
-    let adapter = OpenSpecAdapter::new(&state.change_name)?;
-
-    use crate::spec::TaskSource;
-    let stories = adapter.list_tasks()?;
+    let adapter = spec::create_adapter(&session.change)?;
+    let stories = adapter.stories()?;
 
     // Find the next incomplete story
-    let next_story = stories.iter().find(|story| {
-        // A story is incomplete if any of its tasks are incomplete
-        story.tasks.iter().any(|task| !task.complete)
-    });
+    let next_story = stories.iter().find(|story| !story.is_complete());
 
     let response = match next_story {
         Some(story) => {
             // Update session state with current story
-            state.current_story_id = Some(story.id.clone());
-            save_session(&state)?;
+            session.story_id = Some(story.id.clone());
+            save(&session)?;
 
             NextStoryResponse {
                 complete: false,
@@ -230,8 +166,8 @@ fn run_next_story() -> Result<()> {
             }
         }
         None => {
-            state.current_story_id = None;
-            save_session(&state)?;
+            session.story_id = None;
+            save(&session)?;
 
             NextStoryResponse {
                 complete: true,
@@ -246,46 +182,21 @@ fn run_next_story() -> Result<()> {
 }
 
 fn run_flush() -> Result<()> {
-    use crate::spec::{Learning, Pattern, SpecWriter};
-
     let session_id = get_session_id()?;
-    let state = load_session(&session_id)?;
+    let session = load(&session_id)?;
 
-    let learnings_count = state.learnings.len();
-    let patterns_count = state.patterns.len();
+    let learnings_count = session.learnings.len();
 
     // Load adapter for writing
-    let mut adapter = OpenSpecAdapter::new(&state.change_name)?;
+    let mut adapter = spec::create_adapter(&session.change)?;
 
     // Write learnings via adapter
-    if !state.learnings.is_empty() {
-        let learnings: Vec<Learning> = state
-            .learnings
-            .iter()
-            .map(|l| Learning {
-                description: l.description.clone(),
-                task_id: l.task_id.clone(),
-                story_id: l.story_id.clone(),
-            })
-            .collect();
-        adapter.write_learnings(&learnings)?;
-    }
-
-    // Write patterns via adapter
-    if !state.patterns.is_empty() {
-        let patterns: Vec<Pattern> = state
-            .patterns
-            .iter()
-            .map(|p| Pattern {
-                name: p.name.clone(),
-                description: p.description.clone(),
-            })
-            .collect();
-        adapter.write_patterns(&patterns)?;
+    if !session.learnings.is_empty() {
+        adapter.append_learnings(&session.learnings)?;
     }
 
     // Release lock by removing lock file
-    let lock_path = lock_file_path(&state.change_name);
+    let lock_path = lock_file_path(&session.change);
     if lock_path.exists() {
         fs::remove_file(&lock_path).ok(); // Ignore errors on cleanup
     }
@@ -299,7 +210,6 @@ fn run_flush() -> Result<()> {
     let response = FlushResponse {
         success: true,
         learnings_written: learnings_count,
-        patterns_written: patterns_count,
     };
 
     println!("{}", serde_json::to_string_pretty(&response)?);
@@ -308,28 +218,16 @@ fn run_flush() -> Result<()> {
 
 /// Gets the session ID from RALPH_SESSION environment variable.
 pub fn get_session_id() -> Result<String> {
-    std::env::var("RALPH_SESSION").map_err(|_| {
-        anyhow!(
-            "RALPH_SESSION environment variable not set.\n\
-             This command requires a valid session.\n\
-             Use the orchestrator to manage sessions properly."
-        )
-    })
+    std::env::var("RALPH_SESSION").map_err(|_| Error::SessionRequired)
 }
 
 /// Gets the current story ID from RALPH_STORY environment variable.
 pub fn get_story_id() -> Result<String> {
-    std::env::var("RALPH_STORY").map_err(|_| {
-        anyhow!(
-            "RALPH_STORY environment variable not set.\n\
-             This command requires a story scope.\n\
-             Use `session next-story` to set the current story."
-        )
-    })
+    std::env::var("RALPH_STORY").map_err(|_| Error::StoryRequired)
 }
 
 /// Returns the path to the session state file.
-pub fn session_file_path(session_id: &str) -> std::path::PathBuf {
+pub fn session_file_path(session_id: &str) -> PathBuf {
     let temp_dir = std::env::temp_dir();
     temp_dir
         .join("ralph")
@@ -338,7 +236,7 @@ pub fn session_file_path(session_id: &str) -> std::path::PathBuf {
 }
 
 /// Returns the path to the lock file for a change.
-pub fn lock_file_path(change_name: &str) -> std::path::PathBuf {
+pub fn lock_file_path(change_name: &str) -> PathBuf {
     let cwd = std::env::current_dir().unwrap_or_default();
     cwd.join(".ralph")
         .join("locks")
@@ -346,25 +244,23 @@ pub fn lock_file_path(change_name: &str) -> std::path::PathBuf {
 }
 
 /// Loads session state from file.
-pub fn load_session(session_id: &str) -> Result<SessionState> {
+pub fn load(session_id: &str) -> Result<Session> {
     let path = session_file_path(session_id);
-    let content = std::fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read session file: {}", path.display()))?;
-    let state: SessionState = serde_json::from_str(&content)
-        .with_context(|| "Failed to parse session state")?;
-    Ok(state)
+    let content = fs::read_to_string(&path)?;
+    let session: Session = serde_json::from_str(&content)?;
+    Ok(session)
 }
 
 /// Saves session state to file.
-pub fn save_session(state: &SessionState) -> Result<()> {
-    let path = session_file_path(&state.session_id);
+pub fn save(session: &Session) -> Result<()> {
+    let path = session_file_path(&session.id);
 
     // Ensure directory exists
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)?;
     }
 
-    let content = serde_json::to_string_pretty(state)?;
-    std::fs::write(&path, content)?;
+    let content = serde_json::to_string_pretty(session)?;
+    fs::write(&path, content)?;
     Ok(())
 }

@@ -3,7 +3,6 @@
 //! These tests verify the happy path for agent commands.
 
 use std::env;
-use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -13,48 +12,6 @@ fn ralphtool_bin() -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let target_dir = PathBuf::from(manifest_dir).join("target").join("debug");
     target_dir.join("ralphtool")
-}
-
-/// Creates a temporary test change directory with tasks.md.
-fn setup_test_change(name: &str) -> PathBuf {
-    let temp_dir = env::temp_dir().join("ralph-test").join(name);
-    let change_dir = temp_dir.join("openspec").join("changes").join("test-change");
-
-    // Clean up any existing test directory
-    if temp_dir.exists() {
-        fs::remove_dir_all(&temp_dir).ok();
-    }
-
-    // Create directory structure
-    fs::create_dir_all(&change_dir).unwrap();
-
-    // Create tasks.md
-    let tasks_content = r#"# Tasks
-
-## 1. Project Setup
-
-- [ ] 1.1 Add clap dependency to Cargo.toml
-- [ ] 1.2 Create agent module
-
-## 2. Implementation
-
-- [ ] 2.1 Implement session init
-- [ ] 2.2 Implement session flush
-"#;
-    fs::write(change_dir.join("tasks.md"), tasks_content).unwrap();
-
-    // Create minimal proposal.md and design.md
-    fs::write(change_dir.join("proposal.md"), "# Test Proposal\n").unwrap();
-    fs::write(change_dir.join("design.md"), "# Test Design\n").unwrap();
-
-    temp_dir
-}
-
-/// Cleans up a test directory.
-fn cleanup_test(dir: &PathBuf) {
-    if dir.exists() {
-        fs::remove_dir_all(dir).ok();
-    }
 }
 
 #[test]

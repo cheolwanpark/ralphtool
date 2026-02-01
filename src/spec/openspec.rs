@@ -1,25 +1,22 @@
-//! OpenSpec adapter implementing spec abstraction traits.
+//! OpenSpec adapter implementing the SpecAdapter trait.
 //!
 //! This adapter reads completed OpenSpec changes and converts them
-//! to spec domain types (Story, Task, UserStory, Scenario).
+//! to spec domain types (Story, Task, Scenario).
 
-use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
 use serde::Deserialize;
 
-use crate::spec::{
-    ContextProvider, Learning, Pattern, Priority, Scenario, ScenarioSource, SpecWriter, Story,
-    StorySource, Task, TaskSource, UserStory, VerifyCommands, WorkContext, WorkStatus,
-};
+use crate::error::{Error, Result};
+use crate::spec::{Context, Scenario, SpecAdapter, Story, Task, VerifyCommands};
 
 /// Information about an OpenSpec change.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ChangeInfo {
     pub name: String,
     #[serde(rename = "completedTasks")]
@@ -39,6 +36,7 @@ struct ListResponse {
 
 /// Response from `openspec status --change <name> --json`.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct StatusResponse {
     #[serde(rename = "changeName")]
     change_name: String,
@@ -48,13 +46,11 @@ struct StatusResponse {
 
 /// OpenSpec adapter that provides spec domain types from OpenSpec change data.
 pub struct OpenSpecAdapter {
+    #[allow(dead_code)]
     change_name: String,
     change_dir: PathBuf,
     stories: Vec<Story>,
-    user_stories: Vec<UserStory>,
     scenarios: Vec<Scenario>,
-    /// Maps scenario name to the story_id it belongs to
-    scenario_to_story: HashMap<String, String>,
 }
 
 impl OpenSpecAdapter {
@@ -63,7 +59,7 @@ impl OpenSpecAdapter {
     /// Loads and parses all task and spec data from the change directory.
     pub fn new(change_name: &str) -> Result<Self> {
         // Verify the change exists by getting its status
-        let _status = Self::get_status(change_name)?;
+        Self::get_status(change_name)?;
 
         // Determine change directory
         let change_dir = Self::get_change_dir(change_name)?;
@@ -78,54 +74,30 @@ impl OpenSpecAdapter {
 
         // Parse specs
         let specs_dir = change_dir.join("specs");
-        let (user_stories, scenarios, scenario_to_story) = if specs_dir.exists() {
+        let scenarios = if specs_dir.exists() {
             Self::parse_specs_dir(&specs_dir)?
         } else {
-            (Vec::new(), Vec::new(), HashMap::new())
+            Vec::new()
         };
 
         Ok(Self {
             change_name: change_name.to_string(),
             change_dir,
             stories,
-            user_stories,
             scenarios,
-            scenario_to_story,
         })
     }
 
-    /// Returns the change name.
-    pub fn change_name(&self) -> &str {
-        &self.change_name
-    }
-
     /// Returns the change directory path.
+    #[allow(dead_code)]
     pub fn change_dir(&self) -> &Path {
         &self.change_dir
-    }
-
-    /// Returns scenarios that belong to a specific user story.
-    pub fn scenarios_for_story(&self, story_id: &str) -> Vec<&Scenario> {
-        self.scenarios
-            .iter()
-            .filter(|scenario| {
-                self.scenario_to_story
-                    .get(&scenario.name)
-                    .is_some_and(|sid| sid == story_id)
-            })
-            .collect()
-    }
-
-    /// Returns the scenario-to-story mapping.
-    pub fn scenario_to_story_map(&self) -> &HashMap<String, String> {
-        &self.scenario_to_story
     }
 
     /// Lists all available changes.
     pub fn list_changes() -> Result<Vec<ChangeInfo>> {
         let output = run_openspec_command(&["list", "--json"])?;
-        let response: ListResponse =
-            serde_json::from_str(&output).context("Failed to parse openspec list output")?;
+        let response: ListResponse = serde_json::from_str(&output)?;
         Ok(response.changes)
     }
 
@@ -137,8 +109,7 @@ impl OpenSpecAdapter {
 
     fn get_status(change_name: &str) -> Result<StatusResponse> {
         let output = run_openspec_command(&["status", "--change", change_name, "--json"])?;
-        let response: StatusResponse =
-            serde_json::from_str(&output).context("Failed to parse openspec status output")?;
+        let response: StatusResponse = serde_json::from_str(&output)?;
         Ok(response)
     }
 
@@ -147,22 +118,18 @@ impl OpenSpecAdapter {
         let cwd = std::env::current_dir()?;
         let change_dir = cwd.join("openspec").join("changes").join(change_name);
         if !change_dir.exists() {
-            return Err(anyhow!("Change directory not found: {}", change_dir.display()));
+            return Err(Error::ChangeNotFound(change_name.to_string()));
         }
         Ok(change_dir)
     }
 
     fn parse_tasks_file(path: &Path) -> Result<Vec<Story>> {
-        let content = fs::read_to_string(path).context("Failed to read tasks.md")?;
+        let content = fs::read_to_string(path)?;
         parse_tasks_md(&content)
     }
 
-    fn parse_specs_dir(
-        specs_dir: &Path,
-    ) -> Result<(Vec<UserStory>, Vec<Scenario>, HashMap<String, String>)> {
-        let mut user_stories = Vec::new();
+    fn parse_specs_dir(specs_dir: &Path) -> Result<Vec<Scenario>> {
         let mut scenarios = Vec::new();
-        let mut scenario_to_story = HashMap::new();
 
         // Read all spec.md files in subdirectories
         if let Ok(entries) = fs::read_dir(specs_dir) {
@@ -172,16 +139,14 @@ impl OpenSpecAdapter {
                     let spec_file = path.join("spec.md");
                     if spec_file.exists() {
                         let content = fs::read_to_string(&spec_file)?;
-                        let (stories, scene, mapping) = parse_spec_md(&content)?;
-                        user_stories.extend(stories);
-                        scenarios.extend(scene);
-                        scenario_to_story.extend(mapping);
+                        let parsed = parse_spec_md(&content)?;
+                        scenarios.extend(parsed);
                     }
                 }
             }
         }
 
-        Ok((user_stories, scenarios, scenario_to_story))
+        Ok(scenarios)
     }
 }
 
@@ -190,17 +155,21 @@ fn run_openspec_command(args: &[&str]) -> Result<String> {
     let output = Command::new("openspec")
         .args(args)
         .output()
-        .context("Failed to execute openspec command. Is OpenSpec CLI installed and in PATH?")?;
+        .map_err(|e| Error::Command {
+            cmd: format!("openspec {}", args.join(" ")),
+            stderr: e.to_string(),
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!(
-            "openspec command failed: {}",
-            stderr.trim()
-        ));
+        return Err(Error::Command {
+            cmd: format!("openspec {}", args.join(" ")),
+            stderr: stderr.trim().to_string(),
+        });
     }
 
-    let stdout = String::from_utf8(output.stdout).context("Invalid UTF-8 in command output")?;
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::Parse(format!("Invalid UTF-8 in command output: {}", e)))?;
     Ok(stdout)
 }
 
@@ -265,7 +234,7 @@ fn parse_story_header(text: &str) -> Option<(String, String)> {
 
 /// Parses a task line like "- [ ] 1.1 Description" into a Task.
 fn parse_task_line(line: &str) -> Option<Task> {
-    let (complete, rest) = if let Some(rest) = line.strip_prefix("- [x] ") {
+    let (done, rest) = if let Some(rest) = line.strip_prefix("- [x] ") {
         (true, rest)
     } else if let Some(rest) = line.strip_prefix("- [X] ") {
         (true, rest)
@@ -283,23 +252,18 @@ fn parse_task_line(line: &str) -> Option<Task> {
     Some(Task {
         id,
         description,
-        complete,
+        done,
     })
 }
 
-/// Parses a spec.md file into UserStories and Scenarios.
+/// Parses a spec.md file into Scenarios.
 ///
 /// Format:
-/// - `### Requirement: Name` → UserStory
+/// - `### Requirement: Name` → Story ID derived from name
 /// - `#### Scenario: Name` → Scenario (belongs to preceding requirement)
-fn parse_spec_md(
-    content: &str,
-) -> Result<(Vec<UserStory>, Vec<Scenario>, HashMap<String, String>)> {
-    let mut user_stories = Vec::new();
+fn parse_spec_md(content: &str) -> Result<Vec<Scenario>> {
     let mut scenarios = Vec::new();
-    let mut scenario_to_story = HashMap::new();
-
-    let mut current_story: Option<UserStory> = None;
+    let mut current_story_id = String::new();
     let mut current_scenario: Option<(String, Vec<String>, String, Vec<String>)> = None;
     let mut in_scenario = false;
 
@@ -310,47 +274,36 @@ fn parse_spec_md(
         if let Some(rest) = trimmed.strip_prefix("### Requirement: ") {
             // Save current scenario if any
             if let Some((name, given, when, then)) = current_scenario.take() {
-                let scenario = Scenario { name: name.clone(), given, when, then };
-                if let Some(ref story) = current_story {
-                    scenario_to_story.insert(name, story.id.clone());
-                }
-                scenarios.push(scenario);
+                scenarios.push(Scenario {
+                    name,
+                    story_id: current_story_id.clone(),
+                    given,
+                    when,
+                    then,
+                });
             }
 
-            // Save current story if any
-            if let Some(story) = current_story.take() {
-                user_stories.push(story);
-            }
-
-            let title = rest.trim().to_string();
-            let id = title
+            // Derive story_id from requirement name
+            let title = rest.trim();
+            current_story_id = title
                 .to_lowercase()
                 .replace(' ', "-")
                 .chars()
                 .filter(|c| c.is_alphanumeric() || *c == '-')
                 .collect();
-
-            current_story = Some(UserStory {
-                id,
-                title,
-                description: String::new(),
-                acceptance_criteria: Vec::new(),
-                priority: Priority::Medium,
-                passed: false,
-            });
             in_scenario = false;
         }
         // Parse scenario headers: #### Scenario: Name
         else if let Some(rest) = trimmed.strip_prefix("#### Scenario: ") {
             // Save previous scenario if any
             if let Some((name, given, when, then)) = current_scenario.take() {
-                let scenario = Scenario { name: name.clone(), given, when, then };
-                if let Some(ref story) = current_story {
-                    scenario_to_story.insert(name.clone(), story.id.clone());
-                    // Add scenario as acceptance criteria
-                    current_story.as_mut().unwrap().acceptance_criteria.push(name);
-                }
-                scenarios.push(scenario);
+                scenarios.push(Scenario {
+                    name,
+                    story_id: current_story_id.clone(),
+                    given,
+                    when,
+                    then,
+                });
             }
 
             let name = rest.trim().to_string();
@@ -382,30 +335,20 @@ fn parse_spec_md(
                 }
             }
         }
-        // Collect description lines for current story
-        else if let Some(ref mut story) = current_story {
-            if trimmed.starts_with("The ") && story.description.is_empty() {
-                story.description = trimmed.to_string();
-            }
-        }
     }
 
     // Save final scenario
     if let Some((name, given, when, then)) = current_scenario.take() {
-        let scenario = Scenario { name: name.clone(), given, when, then };
-        if let Some(ref mut story) = current_story {
-            scenario_to_story.insert(name.clone(), story.id.clone());
-            story.acceptance_criteria.push(name);
-        }
-        scenarios.push(scenario);
+        scenarios.push(Scenario {
+            name,
+            story_id: current_story_id,
+            given,
+            when,
+            then,
+        });
     }
 
-    // Save final story
-    if let Some(story) = current_story.take() {
-        user_stories.push(story);
-    }
-
-    Ok((user_stories, scenarios, scenario_to_story))
+    Ok(scenarios)
 }
 
 /// Extracts the step text from a Given/When/Then line.
@@ -429,331 +372,6 @@ fn extract_step(line: &str) -> String {
     }
 
     line.to_string()
-}
-
-// ============================================================================
-// Trait Implementations
-// ============================================================================
-
-impl TaskSource for OpenSpecAdapter {
-    type Error = anyhow::Error;
-
-    fn list_tasks(&self) -> Result<Vec<Story>, Self::Error> {
-        Ok(self.stories.clone())
-    }
-
-    fn next_task(&self) -> Result<Option<Task>, Self::Error> {
-        for story in &self.stories {
-            for task in &story.tasks {
-                if !task.complete {
-                    return Ok(Some(task.clone()));
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    fn mark_complete(&mut self, task_id: &str) -> Result<(), Self::Error> {
-        // First, update in-memory state
-        let mut found = false;
-        for story in &mut self.stories {
-            for task in &mut story.tasks {
-                if task.id == task_id {
-                    task.complete = true;
-                    found = true;
-                    break;
-                }
-            }
-            if found {
-                break;
-            }
-        }
-
-        if !found {
-            return Err(anyhow!("Task not found: {}", task_id));
-        }
-
-        // Persist to tasks.md
-        let tasks_path = self.change_dir.join("tasks.md");
-        if !tasks_path.exists() {
-            return Err(anyhow!("tasks.md not found at: {}", tasks_path.display()));
-        }
-
-        // Open file with locking
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .open(&tasks_path)
-            .with_context(|| format!("Failed to open {}", tasks_path.display()))?;
-
-        file.lock_exclusive()
-            .with_context(|| "Failed to acquire file lock")?;
-
-        // Read content
-        let mut content = String::new();
-        {
-            let mut reader = std::io::BufReader::new(&file);
-            reader.read_to_string(&mut content)?;
-        }
-
-        // Find and replace the task checkbox
-        let unchecked = format!("- [ ] {}", task_id);
-        let checked = format!("- [x] {}", task_id);
-
-        if !content.contains(&unchecked) {
-            // Task might already be complete (idempotent)
-            if content.contains(&checked) {
-                file.unlock()?;
-                return Ok(());
-            }
-            file.unlock()?;
-            return Err(anyhow!("Task '{}' not found in tasks.md", task_id));
-        }
-
-        let new_content = content.replace(&unchecked, &checked);
-
-        file.unlock()?;
-        fs::write(&tasks_path, new_content)?;
-
-        Ok(())
-    }
-}
-
-impl StorySource for OpenSpecAdapter {
-    type Error = anyhow::Error;
-
-    fn list_stories(&self) -> Result<Vec<UserStory>, Self::Error> {
-        Ok(self.user_stories.clone())
-    }
-
-    fn next_story(&self) -> Result<Option<UserStory>, Self::Error> {
-        for story in &self.user_stories {
-            if !story.passed {
-                return Ok(Some(story.clone()));
-            }
-        }
-        Ok(None)
-    }
-
-    fn mark_passed(&mut self, story_id: &str) -> Result<(), Self::Error> {
-        for story in &mut self.user_stories {
-            if story.id == story_id {
-                story.passed = true;
-                return Ok(());
-            }
-        }
-        Err(anyhow!("Story not found: {}", story_id))
-    }
-}
-
-impl ScenarioSource for OpenSpecAdapter {
-    type Error = anyhow::Error;
-
-    fn scenarios_for(&self, story_id: &str) -> Result<Vec<Scenario>, Self::Error> {
-        let mut result = Vec::new();
-        for scenario in &self.scenarios {
-            if let Some(sid) = self.scenario_to_story.get(&scenario.name) {
-                if sid == story_id {
-                    result.push(scenario.clone());
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    fn list_scenarios(&self) -> Result<Vec<Scenario>, Self::Error> {
-        Ok(self.scenarios.clone())
-    }
-}
-
-impl SpecWriter for OpenSpecAdapter {
-    type Error = anyhow::Error;
-
-    fn write_learnings(&mut self, learnings: &[Learning]) -> Result<(), Self::Error> {
-        if learnings.is_empty() {
-            return Ok(());
-        }
-
-        let design_path = self.change_dir.join("design.md");
-        if !design_path.exists() {
-            return Err(anyhow!("design.md not found at: {}", design_path.display()));
-        }
-
-        // Open file with locking
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .open(&design_path)
-            .with_context(|| format!("Failed to open {}", design_path.display()))?;
-
-        file.lock_exclusive()
-            .with_context(|| "Failed to acquire file lock")?;
-
-        // Read current content
-        let mut content = String::new();
-        {
-            let mut reader = std::io::BufReader::new(&file);
-            reader.read_to_string(&mut content)?;
-        }
-
-        // Check if Learnings section exists
-        if !content.contains("## Learnings") {
-            content.push_str("\n## Learnings\n");
-        }
-
-        // Group learnings by story
-        use std::collections::BTreeMap;
-        let mut by_story: BTreeMap<String, Vec<&Learning>> = BTreeMap::new();
-
-        for learning in learnings {
-            let story_id = learning
-                .story_id
-                .clone()
-                .unwrap_or_else(|| "General".to_string());
-            by_story.entry(story_id).or_default().push(learning);
-        }
-
-        // Format learnings
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let mut learnings_text = String::new();
-        for (story_id, items) in by_story {
-            learnings_text.push_str(&format!("\n### {} - Story {}\n", today, story_id));
-            for learning in items {
-                let task_ref = learning
-                    .task_id
-                    .as_ref()
-                    .map(|id| format!(" (Task {})", id))
-                    .unwrap_or_default();
-                learnings_text.push_str(&format!("- {}{}\n", learning.description, task_ref));
-            }
-        }
-
-        // Append learnings
-        content.push_str(&learnings_text);
-
-        file.unlock()?;
-        fs::write(&design_path, content)?;
-
-        Ok(())
-    }
-
-    fn write_patterns(&mut self, patterns: &[Pattern]) -> Result<(), Self::Error> {
-        if patterns.is_empty() {
-            return Ok(());
-        }
-
-        let design_path = self.change_dir.join("design.md");
-        if !design_path.exists() {
-            return Err(anyhow!("design.md not found at: {}", design_path.display()));
-        }
-
-        // Open file with locking
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .open(&design_path)
-            .with_context(|| format!("Failed to open {}", design_path.display()))?;
-
-        file.lock_exclusive()
-            .with_context(|| "Failed to acquire file lock")?;
-
-        // Read current content
-        let mut content = String::new();
-        {
-            let mut reader = std::io::BufReader::new(&file);
-            reader.read_to_string(&mut content)?;
-        }
-
-        // Check if Patterns section exists
-        if !content.contains("## Patterns") {
-            content.push_str("\n## Patterns\n");
-        }
-
-        // Format patterns
-        let mut patterns_text = String::new();
-        for pattern in patterns {
-            patterns_text.push_str(&format!("\n### {}\n\n{}\n", pattern.name, pattern.description));
-        }
-
-        // Append patterns
-        content.push_str(&patterns_text);
-
-        file.unlock()?;
-        fs::write(&design_path, content)?;
-
-        Ok(())
-    }
-}
-
-impl ContextProvider for OpenSpecAdapter {
-    type Error = anyhow::Error;
-
-    fn get_context(&self, story_id: &str) -> Result<WorkContext, Self::Error> {
-        // Find the story
-        let story = self
-            .stories
-            .iter()
-            .find(|s| s.id == story_id)
-            .ok_or_else(|| anyhow!("Story '{}' not found", story_id))?
-            .clone();
-
-        // Get tasks for this story
-        let tasks = story.tasks.clone();
-
-        // Read proposal
-        let proposal_path = self.change_dir.join("proposal.md");
-        let proposal = fs::read_to_string(&proposal_path).unwrap_or_default();
-
-        // Read design
-        let design_path = self.change_dir.join("design.md");
-        let design = fs::read_to_string(&design_path).unwrap_or_default();
-
-        // Get all scenarios (not filtered by story_id, as IDs don't match between tasks.md and specs)
-        let scenarios = self.list_scenarios()?;
-
-        // Infer verification commands from project type
-        let verify = infer_verify_commands()?;
-
-        Ok(WorkContext {
-            story,
-            tasks,
-            proposal,
-            design,
-            scenarios,
-            verify,
-        })
-    }
-
-    fn get_status(&self) -> Result<WorkStatus, Self::Error> {
-        // Find current story (first incomplete one)
-        let mut story_id = String::new();
-        let mut story_tasks_done = 0;
-        let mut story_tasks_total = 0;
-        let mut change_stories_done = 0;
-        let change_stories_total = self.stories.len();
-
-        for story in &self.stories {
-            let tasks_done = story.tasks.iter().filter(|t| t.complete).count();
-            let all_done = tasks_done == story.tasks.len() && !story.tasks.is_empty();
-
-            if all_done {
-                change_stories_done += 1;
-            } else if story_id.is_empty() {
-                // First incomplete story is the current one
-                story_id = story.id.clone();
-                story_tasks_done = tasks_done;
-                story_tasks_total = story.tasks.len();
-            }
-        }
-
-        Ok(WorkStatus {
-            story_id,
-            story_tasks_done,
-            story_tasks_total,
-            change_stories_done,
-            change_stories_total,
-        })
-    }
 }
 
 /// Infers verification commands from project type.
@@ -794,6 +412,176 @@ fn infer_verify_commands() -> Result<VerifyCommands> {
     })
 }
 
+// ============================================================================
+// SpecAdapter Implementation
+// ============================================================================
+
+impl SpecAdapter for OpenSpecAdapter {
+    fn stories(&self) -> Result<Vec<Story>> {
+        Ok(self.stories.clone())
+    }
+
+    fn scenarios(&self) -> Result<Vec<Scenario>> {
+        Ok(self.scenarios.clone())
+    }
+
+    fn context(&self, story_id: &str) -> Result<Context> {
+        // Find the story
+        let story = self
+            .stories
+            .iter()
+            .find(|s| s.id == story_id)
+            .ok_or_else(|| Error::StoryNotFound(story_id.to_string()))?
+            .clone();
+
+        // Read proposal
+        let proposal_path = self.change_dir.join("proposal.md");
+        let proposal = fs::read_to_string(&proposal_path).unwrap_or_default();
+
+        // Read design
+        let design_path = self.change_dir.join("design.md");
+        let design = fs::read_to_string(&design_path).unwrap_or_default();
+
+        // Get all scenarios
+        let scenarios = self.scenarios.clone();
+
+        // Infer verification commands
+        let verify = infer_verify_commands()?;
+
+        Ok(Context {
+            story,
+            proposal,
+            design,
+            scenarios,
+            verify,
+        })
+    }
+
+    fn mark_done(&mut self, task_id: &str) -> Result<()> {
+        // First, update in-memory state
+        let mut found = false;
+        for story in &mut self.stories {
+            for task in &mut story.tasks {
+                if task.id == task_id {
+                    task.done = true;
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+
+        if !found {
+            return Err(Error::TaskNotFound(task_id.to_string()));
+        }
+
+        // Persist to tasks.md
+        let tasks_path = self.change_dir.join("tasks.md");
+        if !tasks_path.exists() {
+            return Err(Error::Parse(format!(
+                "tasks.md not found at: {}",
+                tasks_path.display()
+            )));
+        }
+
+        // Open file with locking
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .open(&tasks_path)?;
+
+        file.lock_exclusive()
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+
+        // Read content
+        let mut content = String::new();
+        {
+            let mut reader = std::io::BufReader::new(&file);
+            reader.read_to_string(&mut content)?;
+        }
+
+        // Find and replace the task checkbox
+        let unchecked = format!("- [ ] {}", task_id);
+        let checked = format!("- [x] {}", task_id);
+
+        if !content.contains(&unchecked) {
+            // Task might already be complete (idempotent)
+            if content.contains(&checked) {
+                file.unlock()
+                    .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+                return Ok(());
+            }
+            file.unlock()
+                .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+            return Err(Error::TaskNotFound(format!(
+                "Task '{}' not found in tasks.md",
+                task_id
+            )));
+        }
+
+        let new_content = content.replace(&unchecked, &checked);
+
+        file.unlock()
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        fs::write(&tasks_path, new_content)?;
+
+        Ok(())
+    }
+
+    fn append_learnings(&mut self, learnings: &[String]) -> Result<()> {
+        if learnings.is_empty() {
+            return Ok(());
+        }
+
+        let design_path = self.change_dir.join("design.md");
+        if !design_path.exists() {
+            return Err(Error::Parse(format!(
+                "design.md not found at: {}",
+                design_path.display()
+            )));
+        }
+
+        // Open file with locking
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .open(&design_path)?;
+
+        file.lock_exclusive()
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+
+        // Read current content
+        let mut content = String::new();
+        {
+            let mut reader = std::io::BufReader::new(&file);
+            reader.read_to_string(&mut content)?;
+        }
+
+        // Check if Learnings section exists
+        if !content.contains("## Learnings") {
+            content.push_str("\n## Learnings\n");
+        }
+
+        // Format learnings
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let mut learnings_text = format!("\n### {}\n", today);
+        for learning in learnings {
+            learnings_text.push_str(&format!("- {}\n", learning));
+        }
+
+        // Append learnings
+        content.push_str(&learnings_text);
+
+        file.unlock()
+            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+        fs::write(&design_path, content)?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -821,7 +609,7 @@ mod tests {
         let task = parse_task_line("- [ ] 1.1 Add serde dependency").unwrap();
         assert_eq!(task.id, "1.1");
         assert_eq!(task.description, "Add serde dependency");
-        assert!(!task.complete);
+        assert!(!task.done);
     }
 
     #[test]
@@ -829,7 +617,7 @@ mod tests {
         let task = parse_task_line("- [x] 2.3 Implement feature").unwrap();
         assert_eq!(task.id, "2.3");
         assert_eq!(task.description, "Implement feature");
-        assert!(task.complete);
+        assert!(task.done);
     }
 
     #[test]
@@ -856,8 +644,8 @@ mod tests {
         assert_eq!(stories[0].id, "1");
         assert_eq!(stories[0].title, "Setup");
         assert_eq!(stories[0].tasks.len(), 2);
-        assert!(!stories[0].tasks[0].complete);
-        assert!(stories[0].tasks[1].complete);
+        assert!(!stories[0].tasks[0].done);
+        assert!(stories[0].tasks[1].done);
 
         assert_eq!(stories[1].id, "2");
         assert_eq!(stories[1].title, "Implementation");
@@ -872,7 +660,10 @@ mod tests {
 
     #[test]
     fn extract_step_when() {
-        assert_eq!(extract_step("- **WHEN** user clicks button"), "user clicks button");
+        assert_eq!(
+            extract_step("- **WHEN** user clicks button"),
+            "user clicks button"
+        );
     }
 
     #[test]

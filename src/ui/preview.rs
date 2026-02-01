@@ -24,7 +24,7 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
     // Header with change name and counts
     let change_name = app.selected_change_name.as_deref().unwrap_or("Unknown");
     let task_count: usize = app.stories.iter().flat_map(|s| &s.tasks).count();
-    let story_count = app.user_stories.len();
+    let story_count = app.stories.len();
     let scenario_count = app.scenarios.len();
 
     let header_text = vec![
@@ -50,7 +50,7 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
     // Render content based on active tab
     let lines = match app.active_tab {
         PreviewTab::Tasks => render_tasks_tab(app),
-        PreviewTab::UserStories => render_user_stories_tab(app),
+        PreviewTab::Scenarios => render_scenarios_tab(app),
     };
 
     // Apply scroll offset
@@ -75,11 +75,11 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
 fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
     let tasks_label = match app.active_tab {
         PreviewTab::Tasks => "[Tasks]",
-        PreviewTab::UserStories => "Tasks",
+        PreviewTab::Scenarios => "Tasks",
     };
-    let stories_label = match app.active_tab {
-        PreviewTab::Tasks => "User Stories",
-        PreviewTab::UserStories => "[User Stories]",
+    let scenarios_label = match app.active_tab {
+        PreviewTab::Tasks => "Scenarios",
+        PreviewTab::Scenarios => "[Scenarios]",
     };
 
     let tab_line = Line::from(vec![
@@ -94,8 +94,8 @@ fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled(" | ", Style::default().fg(Color::DarkGray)),
         Span::styled(
-            stories_label,
-            if app.active_tab == PreviewTab::UserStories {
+            scenarios_label,
+            if app.active_tab == PreviewTab::Scenarios {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
@@ -120,8 +120,8 @@ fn render_tasks_tab(app: &App) -> Vec<Line<'_>> {
         ]));
 
         for task in &story.tasks {
-            let checkbox = if task.complete { "[x]" } else { "[ ]" };
-            let style = if task.complete {
+            let checkbox = if task.done { "[x]" } else { "[ ]" };
+            let style = if task.done {
                 Style::default().fg(Color::Green)
             } else {
                 Style::default()
@@ -141,64 +141,107 @@ fn render_tasks_tab(app: &App) -> Vec<Line<'_>> {
     lines
 }
 
-fn render_user_stories_tab(app: &App) -> Vec<Line<'_>> {
+fn render_scenarios_tab(app: &App) -> Vec<Line<'_>> {
     let mut lines: Vec<Line> = Vec::new();
 
-    for story in &app.user_stories {
-        // User Story header
-        lines.push(Line::from(vec![
-            Span::styled("▸ ", Style::default().fg(Color::Yellow)),
-            Span::styled(&story.title, Style::default().add_modifier(Modifier::BOLD)),
-        ]));
-
-        // Story description
-        if !story.description.is_empty() {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(&story.description, Style::default().fg(Color::DarkGray)),
-            ]));
+    // Group scenarios by story_id
+    for story in &app.stories {
+        let scenarios = app.scenarios_for_story(&story.id);
+        if scenarios.is_empty() {
+            continue;
         }
 
-        // Nested scenarios for this user story
-        let scenarios = app.scenarios_for_story(&story.id);
-        if !scenarios.is_empty() {
-            for scenario in scenarios {
-                // Scenario header (indented under user story)
+        // Story header
+        lines.push(Line::from(vec![
+            Span::styled("▸ ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                format!("Story {}: {}", story.id, story.title),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ]));
+
+        for scenario in scenarios {
+            // Scenario header (indented under story)
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled("◦ ", Style::default().fg(Color::Magenta)),
+                Span::styled(&scenario.name, Style::default().fg(Color::Cyan)),
+            ]));
+
+            // Given steps
+            for given in &scenario.given {
                 lines.push(Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled("◦ ", Style::default().fg(Color::Magenta)),
-                    Span::styled(&scenario.name, Style::default().fg(Color::Cyan)),
+                    Span::raw("        "),
+                    Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
+                    Span::raw(given.as_str()),
                 ]));
+            }
 
-                // Given steps
-                for given in &scenario.given {
-                    lines.push(Line::from(vec![
-                        Span::raw("        "),
-                        Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
-                        Span::raw(given.as_str()),
-                    ]));
-                }
+            // When step
+            if !scenario.when.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::raw("        "),
+                    Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
+                    Span::raw(scenario.when.as_str()),
+                ]));
+            }
 
-                // When step
-                if !scenario.when.is_empty() {
-                    lines.push(Line::from(vec![
-                        Span::raw("        "),
-                        Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
-                        Span::raw(scenario.when.as_str()),
-                    ]));
-                }
-
-                // Then steps
-                for then in &scenario.then {
-                    lines.push(Line::from(vec![
-                        Span::raw("        "),
-                        Span::styled("THEN ", Style::default().fg(Color::Green)),
-                        Span::raw(then.as_str()),
-                    ]));
-                }
+            // Then steps
+            for then in &scenario.then {
+                lines.push(Line::from(vec![
+                    Span::raw("        "),
+                    Span::styled("THEN ", Style::default().fg(Color::Green)),
+                    Span::raw(then.as_str()),
+                ]));
             }
         }
 
+        lines.push(Line::from(""));
+    }
+
+    // Also show scenarios that don't match any story
+    let unmatched: Vec<_> = app.scenarios.iter()
+        .filter(|s| !app.stories.iter().any(|story| story.id == s.story_id))
+        .collect();
+
+    if !unmatched.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("▸ ", Style::default().fg(Color::Yellow)),
+            Span::styled("Unmatched Scenarios", Style::default().add_modifier(Modifier::BOLD)),
+        ]));
+
+        for scenario in unmatched {
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled("◦ ", Style::default().fg(Color::Magenta)),
+                Span::styled(&scenario.name, Style::default().fg(Color::Cyan)),
+                Span::styled(format!(" ({})", scenario.story_id), Style::default().fg(Color::DarkGray)),
+            ]));
+
+            for given in &scenario.given {
+                lines.push(Line::from(vec![
+                    Span::raw("        "),
+                    Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
+                    Span::raw(given.as_str()),
+                ]));
+            }
+
+            if !scenario.when.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::raw("        "),
+                    Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
+                    Span::raw(scenario.when.as_str()),
+                ]));
+            }
+
+            for then in &scenario.then {
+                lines.push(Line::from(vec![
+                    Span::raw("        "),
+                    Span::styled("THEN ", Style::default().fg(Color::Green)),
+                    Span::raw(then.as_str()),
+                ]));
+            }
+        }
         lines.push(Line::from(""));
     }
 
