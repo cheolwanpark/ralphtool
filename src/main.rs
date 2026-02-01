@@ -1,7 +1,7 @@
 mod agent;
 mod app;
 mod event;
-mod ralph;
+mod spec;
 mod ui;
 
 use std::io;

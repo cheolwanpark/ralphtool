@@ -1,8 +1,4 @@
-## Purpose
-
-Task completion management within the current story.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Mark task complete
 
@@ -69,6 +65,8 @@ The system SHALL ensure task updates are atomic and consistent.
 - **WHEN** task update is in progress
 - **THEN** spec adapter uses file locking to prevent corruption
 - **THEN** update is atomic (no partial writes)
+
+## ADDED Requirements
 
 ### Requirement: Task completion through adapter
 

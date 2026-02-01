@@ -1,8 +1,4 @@
-## Purpose
-
-Provides backend-agnostic traits and domain types for Ralph workflow concepts. Adapters implement these traits to provide task, story, and progress data from their respective spec systems (OpenSpec, SpecKit, etc.).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Task domain types
 
@@ -96,3 +92,25 @@ The abstraction layer SHALL NOT create Ralph-specific files (prd.json, progress.
 
 - **WHEN** any write operation is performed (mark_complete, write_learnings, etc.)
 - **THEN** the adapter SHALL write to its source system's format, not create new Ralph files
+
+## REMOVED Requirements
+
+### Requirement: Progress domain types
+
+**Reason**: Learnings and patterns are now owned by agent layer, not spec abstraction
+**Migration**: Use agent session state for Learning and Pattern types
+
+### Requirement: ProgressTracker trait
+
+**Reason**: Replaced by SpecWriter trait which agent calls on flush
+**Migration**: Use SpecWriter::write_learnings() and SpecWriter::write_patterns() via adapter
+
+## RENAMED Requirements
+
+### Requirement: VerificationSource trait
+**FROM**: VerificationSource trait
+**TO**: ScenarioSource trait
+
+### Requirement: StoryProvider trait
+**FROM**: StoryProvider trait
+**TO**: StorySource trait

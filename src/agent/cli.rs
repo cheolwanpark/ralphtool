@@ -58,6 +58,9 @@ pub enum AgentCommand {
 
     /// Record a learning
     Learn(LearnArgs),
+
+    /// Record a pattern
+    Pattern(PatternArgs),
 }
 
 /// Session lifecycle commands (used by orchestrator).
@@ -104,4 +107,14 @@ pub struct LearnArgs {
     /// Optional task ID this learning relates to
     #[arg(long)]
     pub task: Option<String>,
+}
+
+/// Arguments for pattern command.
+#[derive(Parser)]
+pub struct PatternArgs {
+    /// Pattern name
+    pub name: String,
+
+    /// Pattern description
+    pub description: String,
 }

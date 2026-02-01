@@ -1,6 +1,4 @@
-//! Domain types for Ralph workflow concepts.
-
-use std::time::SystemTime;
+//! Domain types for spec abstraction concepts.
 
 // ============================================================================
 // Task Hierarchy Types
@@ -28,30 +26,6 @@ pub struct Story {
     pub tasks: Vec<Task>,
 }
 
-
-// ============================================================================
-// Progress Types
-// ============================================================================
-
-/// A learning captured during task execution.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Learning {
-    /// Description of what was learned.
-    pub description: String,
-    /// Optional reference to the task this learning relates to.
-    pub task_id: Option<String>,
-    /// When this learning was recorded.
-    pub timestamp: SystemTime,
-}
-
-/// A reusable pattern discovered in the codebase.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pattern {
-    /// Name identifying the pattern.
-    pub name: String,
-    /// Description of the pattern and how to use it.
-    pub description: String,
-}
 
 // ============================================================================
 // Story Types
@@ -172,38 +146,6 @@ mod tests {
             tasks: vec![],
         };
         assert!(story.tasks.is_empty());
-    }
-
-    // Progress types tests
-    #[test]
-    fn learning_with_task_reference() {
-        let learning = Learning {
-            description: "Use async/await for I/O".to_string(),
-            task_id: Some("task-42".to_string()),
-            timestamp: SystemTime::now(),
-        };
-        assert_eq!(learning.description, "Use async/await for I/O");
-        assert_eq!(learning.task_id, Some("task-42".to_string()));
-    }
-
-    #[test]
-    fn learning_without_task_reference() {
-        let learning = Learning {
-            description: "General insight".to_string(),
-            task_id: None,
-            timestamp: SystemTime::now(),
-        };
-        assert!(learning.task_id.is_none());
-    }
-
-    #[test]
-    fn pattern_has_name_and_description() {
-        let pattern = Pattern {
-            name: "Repository pattern".to_string(),
-            description: "Use repositories for data access".to_string(),
-        };
-        assert_eq!(pattern.name, "Repository pattern");
-        assert_eq!(pattern.description, "Use repositories for data access");
     }
 
     // Story types tests

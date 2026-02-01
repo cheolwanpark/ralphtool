@@ -70,6 +70,7 @@ pub fn run(command: AgentCommand) -> Result<()> {
         AgentCommand::Task(cmd) => tasks::run(cmd),
         AgentCommand::Status => tasks::run_status(),
         AgentCommand::Learn(cmd) => progress::run(cmd),
+        AgentCommand::Pattern(cmd) => progress::run_pattern(cmd),
     };
 
     // If there's an error, format it as JSON

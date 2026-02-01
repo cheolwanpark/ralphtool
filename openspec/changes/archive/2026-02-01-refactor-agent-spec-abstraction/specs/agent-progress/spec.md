@@ -1,8 +1,4 @@
-## Purpose
-
-Progress tracking for learnings during Ralph Loop iterations.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Record learning
 
@@ -50,6 +46,8 @@ The system SHALL include previous learnings in context response.
 - **WHEN** agent records learning then calls `context` again
 - **THEN** newly recorded learning is included from session state
 
+## ADDED Requirements
+
 ### Requirement: Patterns accumulated in session
 
 The system SHALL accumulate patterns in session state until flush.
@@ -80,3 +78,10 @@ The progress commands SHALL NOT write directly to spec files.
 - **WHEN** agent calls `pattern`
 - **THEN** system only updates session state
 - **THEN** system does NOT write to specs/
+
+## REMOVED Requirements
+
+### Requirement: Learning format in design.md
+
+**Reason**: Format is now the responsibility of SpecWriter implementation in adapter
+**Migration**: See openspec-adapter spec for write_learnings() format

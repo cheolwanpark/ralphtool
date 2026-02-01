@@ -1,8 +1,4 @@
-## Purpose
-
-Context retrieval for the current story in a Ralph Loop iteration.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Story context retrieval
 
@@ -56,6 +52,8 @@ The system SHALL require valid session for context retrieval.
 
 - **WHEN** agent calls `context` without RALPH_STORY
 - **THEN** system returns error explaining story scope requirement
+
+## ADDED Requirements
 
 ### Requirement: Context uses spec adapter
 

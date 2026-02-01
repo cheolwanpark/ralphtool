@@ -1,8 +1,4 @@
-## Purpose
-
-Session lifecycle management for the Ralph Loop orchestrator.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Session initialization
 
@@ -85,6 +81,8 @@ The system SHALL store session state in OS-agnostic temporary directory.
 
 - **WHEN** session is active
 - **THEN** session file contains: session_id, change_name, current_story_id, created_at, learnings, patterns, completed_tasks
+
+## ADDED Requirements
 
 ### Requirement: Session owns learnings
 

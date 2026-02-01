@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::ralph::{Scenario, Story, UserStory};
-use crate::ralph::openspec::{ChangeInfo, OpenSpecAdapter};
+use crate::spec::{Scenario, Story, UserStory};
+use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use anyhow::Result;
 
 /// The current screen being displayed.
@@ -199,4 +199,4 @@ impl App {
 }
 
 // Import traits for method resolution
-use crate::ralph::{StoryProvider, TaskSource, VerificationSource};
+use crate::spec::{StorySource, TaskSource, ScenarioSource};

@@ -4,14 +4,12 @@
 //! to work on the current story, including tasks, proposal, design, scenarios,
 //! and learnings from previous iterations.
 
-use std::fs;
-
 use anyhow::Result;
 use serde::Serialize;
 
 use crate::agent::session::{get_session_id, get_story_id, load_session};
-use crate::ralph::openspec::OpenSpecAdapter;
-use crate::ralph::{TaskSource, VerificationSource};
+use crate::spec::openspec::OpenSpecAdapter;
+use crate::spec::ContextProvider;
 
 /// Response from the context command.
 #[derive(Debug, Serialize)]
@@ -31,11 +29,11 @@ pub struct ContextResponse {
     /// Scenarios relevant to this story.
     pub scenarios: Vec<ScenarioContext>,
 
-    /// Learnings from previous iterations.
+    /// Learnings from previous iterations (from session state).
     pub learnings: Vec<LearningContext>,
 
-    /// Codebase patterns.
-    pub patterns: Vec<String>,
+    /// Codebase patterns (from session state).
+    pub patterns: Vec<PatternContext>,
 
     /// Verification commands.
     pub verify: VerifyCommands,
@@ -74,6 +72,13 @@ pub struct LearningContext {
     pub timestamp: String,
 }
 
+/// Pattern context information.
+#[derive(Debug, Serialize)]
+pub struct PatternContext {
+    pub name: String,
+    pub description: String,
+}
+
 /// Verification commands.
 #[derive(Debug, Serialize)]
 pub struct VerifyCommands {
@@ -92,22 +97,18 @@ pub fn run() -> Result<()> {
 
     let adapter = OpenSpecAdapter::new(&session.change_name)?;
 
-    // Get all stories and find the current one
-    let stories = adapter.list_tasks()?;
-    let current_story = stories
-        .iter()
-        .find(|s| s.id == story_id)
-        .ok_or_else(|| anyhow::anyhow!("Story '{}' not found", story_id))?;
+    // Get context from adapter
+    let work_context = adapter.get_context(&story_id)?;
 
     // Build story context
     let story_context = StoryContext {
-        id: current_story.id.clone(),
-        title: current_story.title.clone(),
+        id: work_context.story.id.clone(),
+        title: work_context.story.title.clone(),
         description: String::new(), // Stories from tasks.md don't have descriptions
     };
 
     // Build task contexts
-    let tasks: Vec<TaskContext> = current_story
+    let tasks: Vec<TaskContext> = work_context
         .tasks
         .iter()
         .map(|t| TaskContext {
@@ -117,24 +118,19 @@ pub fn run() -> Result<()> {
         })
         .collect();
 
-    // Read proposal and design
-    let change_dir = get_change_dir(&session.change_name)?;
-    let proposal = fs::read_to_string(change_dir.join("proposal.md")).unwrap_or_default();
-    let design = fs::read_to_string(change_dir.join("design.md")).unwrap_or_default();
-
-    // Get scenarios for this story
-    let all_scenarios = adapter.list_scenarios()?;
-    let scenarios: Vec<ScenarioContext> = all_scenarios
-        .into_iter()
+    // Build scenario contexts
+    let scenarios: Vec<ScenarioContext> = work_context
+        .scenarios
+        .iter()
         .map(|s| ScenarioContext {
-            name: s.name,
-            given: s.given,
-            when: s.when,
-            then: s.then,
+            name: s.name.clone(),
+            given: s.given.clone(),
+            when: s.when.clone(),
+            then: s.then.clone(),
         })
         .collect();
 
-    // Convert learnings from session
+    // Get learnings from session state (not from adapter)
     let learnings: Vec<LearningContext> = session
         .learnings
         .iter()
@@ -145,71 +141,33 @@ pub fn run() -> Result<()> {
         })
         .collect();
 
-    // Infer verification commands from project type
-    let verify = infer_verify_commands()?;
+    // Get patterns from session state
+    let patterns: Vec<PatternContext> = session
+        .patterns
+        .iter()
+        .map(|p| PatternContext {
+            name: p.name.clone(),
+            description: p.description.clone(),
+        })
+        .collect();
+
+    // Build verify commands
+    let verify = VerifyCommands {
+        checks: work_context.verify.checks,
+        tests: work_context.verify.tests,
+    };
 
     let response = ContextResponse {
         story: story_context,
         tasks,
-        proposal,
-        design,
+        proposal: work_context.proposal,
+        design: work_context.design,
         scenarios,
         learnings,
-        patterns: Vec::new(), // Patterns can be extracted from specs if needed
+        patterns,
         verify,
     };
 
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
-}
-
-/// Gets the change directory path.
-fn get_change_dir(change_name: &str) -> Result<std::path::PathBuf> {
-    let cwd = std::env::current_dir()?;
-    let change_dir = cwd.join("openspec").join("changes").join(change_name);
-    if !change_dir.exists() {
-        return Err(anyhow::anyhow!(
-            "Change directory not found: {}",
-            change_dir.display()
-        ));
-    }
-    Ok(change_dir)
-}
-
-/// Infers verification commands from project type.
-fn infer_verify_commands() -> Result<VerifyCommands> {
-    let cwd = std::env::current_dir()?;
-
-    // Check for Cargo.toml (Rust project)
-    if cwd.join("Cargo.toml").exists() {
-        return Ok(VerifyCommands {
-            checks: vec![
-                "cargo check".to_string(),
-                "cargo clippy -- -D warnings".to_string(),
-            ],
-            tests: "cargo test".to_string(),
-        });
-    }
-
-    // Check for package.json (Node.js project)
-    if cwd.join("package.json").exists() {
-        return Ok(VerifyCommands {
-            checks: vec!["npm run lint".to_string()],
-            tests: "npm test".to_string(),
-        });
-    }
-
-    // Check for pyproject.toml or setup.py (Python project)
-    if cwd.join("pyproject.toml").exists() || cwd.join("setup.py").exists() {
-        return Ok(VerifyCommands {
-            checks: vec!["python -m mypy .".to_string()],
-            tests: "python -m pytest".to_string(),
-        });
-    }
-
-    // Default/fallback
-    Ok(VerifyCommands {
-        checks: Vec::new(),
-        tests: String::new(),
-    })
 }

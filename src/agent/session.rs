@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::agent::cli::{SessionCommand, SessionInitArgs};
-use crate::ralph::openspec::OpenSpecAdapter;
+use crate::spec::openspec::OpenSpecAdapter;
 
 /// Session state stored in temp directory.
 ///
@@ -40,6 +40,10 @@ pub struct SessionState {
     /// Learnings accumulated during this session (not yet written to design.md).
     pub learnings: Vec<SessionLearning>,
 
+    /// Patterns accumulated during this session (not yet written to design.md).
+    #[serde(default)]
+    pub patterns: Vec<SessionPattern>,
+
     /// Task IDs completed during this session.
     pub completed_tasks: Vec<String>,
 }
@@ -60,6 +64,22 @@ pub struct SessionLearning {
     pub story_id: Option<String>,
 
     /// ISO 8601 timestamp when learning was recorded.
+    pub timestamp: String,
+}
+
+/// A reusable pattern discovered in the codebase.
+///
+/// Patterns are buffered in session state and flushed to design.md
+/// when the session ends.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionPattern {
+    /// Name identifying the pattern.
+    pub name: String,
+
+    /// Description of the pattern and how to use it.
+    pub description: String,
+
+    /// ISO 8601 timestamp when pattern was recorded.
     pub timestamp: String,
 }
 
@@ -98,6 +118,7 @@ pub struct NextStoryResponse {
 pub struct FlushResponse {
     pub success: bool,
     pub learnings_written: usize,
+    pub patterns_written: usize,
 }
 
 /// Runs a session subcommand.
@@ -146,6 +167,7 @@ fn run_init(args: SessionInitArgs) -> Result<()> {
         current_story_id: None,
         created_at: now.to_rfc3339(),
         learnings: Vec::new(),
+        patterns: Vec::new(),
         completed_tasks: Vec::new(),
     };
 
@@ -153,7 +175,7 @@ fn run_init(args: SessionInitArgs) -> Result<()> {
     save_session(&state)?;
 
     // Build story info from adapter
-    use crate::ralph::TaskSource;
+    use crate::spec::TaskSource;
     let stories = adapter.list_tasks()?;
     let story_infos: Vec<StoryInfo> = stories
         .iter()
@@ -186,7 +208,7 @@ fn run_next_story() -> Result<()> {
     // Load the adapter to get story information
     let adapter = OpenSpecAdapter::new(&state.change_name)?;
 
-    use crate::ralph::TaskSource;
+    use crate::spec::TaskSource;
     let stories = adapter.list_tasks()?;
 
     // Find the next incomplete story
@@ -224,14 +246,42 @@ fn run_next_story() -> Result<()> {
 }
 
 fn run_flush() -> Result<()> {
+    use crate::spec::{Learning, Pattern, SpecWriter};
+
     let session_id = get_session_id()?;
     let state = load_session(&session_id)?;
 
     let learnings_count = state.learnings.len();
+    let patterns_count = state.patterns.len();
 
-    // Write learnings to design.md if there are any
+    // Load adapter for writing
+    let mut adapter = OpenSpecAdapter::new(&state.change_name)?;
+
+    // Write learnings via adapter
     if !state.learnings.is_empty() {
-        write_learnings_to_design(&state)?;
+        let learnings: Vec<Learning> = state
+            .learnings
+            .iter()
+            .map(|l| Learning {
+                description: l.description.clone(),
+                task_id: l.task_id.clone(),
+                story_id: l.story_id.clone(),
+            })
+            .collect();
+        adapter.write_learnings(&learnings)?;
+    }
+
+    // Write patterns via adapter
+    if !state.patterns.is_empty() {
+        let patterns: Vec<Pattern> = state
+            .patterns
+            .iter()
+            .map(|p| Pattern {
+                name: p.name.clone(),
+                description: p.description.clone(),
+            })
+            .collect();
+        adapter.write_patterns(&patterns)?;
     }
 
     // Release lock by removing lock file
@@ -249,64 +299,10 @@ fn run_flush() -> Result<()> {
     let response = FlushResponse {
         success: true,
         learnings_written: learnings_count,
+        patterns_written: patterns_count,
     };
 
     println!("{}", serde_json::to_string_pretty(&response)?);
-    Ok(())
-}
-
-/// Writes accumulated learnings to design.md.
-fn write_learnings_to_design(state: &SessionState) -> Result<()> {
-    // Find design.md in the change directory
-    let cwd = std::env::current_dir()?;
-    let design_path = cwd
-        .join("openspec")
-        .join("changes")
-        .join(&state.change_name)
-        .join("design.md");
-
-    if !design_path.exists() {
-        return Err(anyhow!("design.md not found at: {}", design_path.display()));
-    }
-
-    let mut content = fs::read_to_string(&design_path)?;
-
-    // Check if Learnings section exists
-    let learnings_section = "\n## Learnings\n";
-    if !content.contains("## Learnings") {
-        content.push_str(learnings_section);
-    }
-
-    // Group learnings by date and story
-    use std::collections::BTreeMap;
-    let mut by_date_story: BTreeMap<(String, String), Vec<&SessionLearning>> = BTreeMap::new();
-
-    for learning in &state.learnings {
-        // Parse date from timestamp
-        let date = learning.timestamp.split('T').next().unwrap_or("Unknown");
-        let story_id = learning.story_id.clone().unwrap_or_else(|| "General".to_string());
-        let key = (date.to_string(), story_id);
-        by_date_story.entry(key).or_default().push(learning);
-    }
-
-    // Format learnings
-    let mut learnings_text = String::new();
-    for ((date, story_id), learnings) in by_date_story {
-        learnings_text.push_str(&format!("\n### {} - Story {}\n", date, story_id));
-        for learning in learnings {
-            let task_ref = learning
-                .task_id
-                .as_ref()
-                .map(|id| format!(" (Task {})", id))
-                .unwrap_or_default();
-            learnings_text.push_str(&format!("- {}{}\n", learning.description, task_ref));
-        }
-    }
-
-    // Append learnings
-    content.push_str(&learnings_text);
-
-    fs::write(&design_path, content)?;
     Ok(())
 }
 

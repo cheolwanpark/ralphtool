@@ -1,8 +1,4 @@
-## Purpose
-
-Defines the OpenSpec adapter that implements Ralph traits by reading OpenSpec change data (tasks.md, specs/*.md) and providing it as Ralph domain types.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: OpenSpec CLI integration
 
@@ -125,6 +121,8 @@ The adapter SHALL implement the `ScenarioSource` trait.
 - **WHEN** `scenarios_for(story_id)` is called
 - **THEN** the adapter SHALL return only scenarios belonging to the specified story/requirement
 
+## ADDED Requirements
+
 ### Requirement: SpecWriter trait implementation
 
 The adapter SHALL implement the `SpecWriter` trait for persisting learnings and patterns.
@@ -155,3 +153,10 @@ The adapter SHALL implement the `ContextProvider` trait for context retrieval.
 
 - **WHEN** `get_status()` is called
 - **THEN** the adapter SHALL return task/story completion counts from parsed tasks.md
+
+## REMOVED Requirements
+
+### Requirement: ProgressTracker trait implementation
+
+**Reason**: Replaced by SpecWriter trait
+**Migration**: Use write_learnings() and write_patterns() instead
