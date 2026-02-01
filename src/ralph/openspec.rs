@@ -102,6 +102,23 @@ impl OpenSpecAdapter {
         &self.change_dir
     }
 
+    /// Returns scenarios that belong to a specific user story.
+    pub fn scenarios_for_story(&self, story_id: &str) -> Vec<&Scenario> {
+        self.scenarios
+            .iter()
+            .filter(|scenario| {
+                self.scenario_to_story
+                    .get(&scenario.name)
+                    .is_some_and(|sid| sid == story_id)
+            })
+            .collect()
+    }
+
+    /// Returns the scenario-to-story mapping.
+    pub fn scenario_to_story_map(&self) -> &HashMap<String, String> {
+        &self.scenario_to_story
+    }
+
     /// Lists all available changes.
     pub fn list_changes() -> Result<Vec<ChangeInfo>> {
         let output = run_openspec_command(&["list", "--json"])?;

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::ralph::{Scenario, Story, UserStory};
 use crate::ralph::openspec::{ChangeInfo, OpenSpecAdapter};
 use anyhow::Result;
@@ -9,6 +11,14 @@ pub enum Screen {
     ChangeSelection,
     /// Screen for previewing conversion results.
     ConversionPreview,
+}
+
+/// Tab selection for the preview screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreviewTab {
+    #[default]
+    Tasks,
+    UserStories,
 }
 
 pub struct App {
@@ -29,6 +39,14 @@ pub struct App {
     pub selected_index: usize,
     /// Scroll offset for preview screen.
     pub scroll_offset: usize,
+    /// Active tab in the preview screen.
+    pub active_tab: PreviewTab,
+    /// Scroll offset for the Tasks tab.
+    pub tasks_scroll_offset: usize,
+    /// Scroll offset for the User Stories tab.
+    pub user_stories_scroll_offset: usize,
+    /// Maps scenario name to user story ID for nesting scenarios under stories.
+    pub scenario_to_story: HashMap<String, String>,
 }
 
 impl App {
@@ -43,6 +61,10 @@ impl App {
             available_changes: Vec::new(),
             selected_index: 0,
             scroll_offset: 0,
+            active_tab: PreviewTab::default(),
+            tasks_scroll_offset: 0,
+            user_stories_scroll_offset: 0,
+            scenario_to_story: HashMap::new(),
         }
     }
 
@@ -67,6 +89,7 @@ impl App {
             self.stories = adapter.list_tasks()?;
             self.user_stories = adapter.list_stories()?;
             self.scenarios = adapter.list_scenarios()?;
+            self.scenario_to_story = adapter.scenario_to_story_map().clone();
         }
         Ok(())
     }
@@ -88,6 +111,18 @@ impl App {
         // Preserve selected_index for when user returns
     }
 
+    /// Returns scenarios that belong to a specific user story.
+    pub fn scenarios_for_story(&self, story_id: &str) -> Vec<&Scenario> {
+        self.scenarios
+            .iter()
+            .filter(|scenario| {
+                self.scenario_to_story
+                    .get(&scenario.name)
+                    .is_some_and(|sid| sid == story_id)
+            })
+            .collect()
+    }
+
     /// Moves selection up in the change list.
     pub fn select_previous(&mut self) {
         if !self.available_changes.is_empty() {
@@ -106,24 +141,60 @@ impl App {
         }
     }
 
+    /// Returns a mutable reference to the current tab's scroll offset.
+    fn current_scroll_offset(&mut self) -> &mut usize {
+        match self.active_tab {
+            PreviewTab::Tasks => &mut self.tasks_scroll_offset,
+            PreviewTab::UserStories => &mut self.user_stories_scroll_offset,
+        }
+    }
+
+    /// Returns the current tab's scroll offset.
+    pub fn get_scroll_offset(&self) -> usize {
+        match self.active_tab {
+            PreviewTab::Tasks => self.tasks_scroll_offset,
+            PreviewTab::UserStories => self.user_stories_scroll_offset,
+        }
+    }
+
     /// Scrolls up in the preview screen.
     pub fn scroll_up(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+        let offset = self.current_scroll_offset();
+        *offset = offset.saturating_sub(1);
     }
 
     /// Scrolls down in the preview screen.
     pub fn scroll_down(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_add(1);
+        let offset = self.current_scroll_offset();
+        *offset = offset.saturating_add(1);
     }
 
     /// Page up in the preview screen.
     pub fn page_up(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(10);
+        let offset = self.current_scroll_offset();
+        *offset = offset.saturating_sub(10);
     }
 
     /// Page down in the preview screen.
     pub fn page_down(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_add(10);
+        let offset = self.current_scroll_offset();
+        *offset = offset.saturating_add(10);
+    }
+
+    /// Switches to the next tab in the preview screen.
+    pub fn switch_to_next_tab(&mut self) {
+        self.active_tab = match self.active_tab {
+            PreviewTab::Tasks => PreviewTab::UserStories,
+            PreviewTab::UserStories => PreviewTab::Tasks,
+        };
+    }
+
+    /// Switches to the previous tab in the preview screen.
+    pub fn switch_to_previous_tab(&mut self) {
+        self.active_tab = match self.active_tab {
+            PreviewTab::Tasks => PreviewTab::UserStories,
+            PreviewTab::UserStories => PreviewTab::Tasks,
+        };
     }
 }
 

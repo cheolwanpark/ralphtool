@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::app::{App, Screen};
 
@@ -13,7 +13,9 @@ pub fn handle_events(app: &mut App) -> Result<()> {
             if key_event.kind == KeyEventKind::Press {
                 match app.screen {
                     Screen::ChangeSelection => handle_selection_events(app, key_event.code)?,
-                    Screen::ConversionPreview => handle_preview_events(app, key_event.code),
+                    Screen::ConversionPreview => {
+                        handle_preview_events(app, key_event.code, key_event.modifiers)
+                    }
                 }
             }
         }
@@ -36,7 +38,7 @@ fn handle_selection_events(app: &mut App, code: KeyCode) -> Result<()> {
     Ok(())
 }
 
-fn handle_preview_events(app: &mut App, code: KeyCode) {
+fn handle_preview_events(app: &mut App, code: KeyCode, modifiers: KeyModifiers) {
     match code {
         KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
         KeyCode::Esc => app.back_to_selection(),
@@ -44,6 +46,9 @@ fn handle_preview_events(app: &mut App, code: KeyCode) {
         KeyCode::Down => app.scroll_down(),
         KeyCode::PageUp => app.page_up(),
         KeyCode::PageDown => app.page_down(),
+        KeyCode::Tab if modifiers.contains(KeyModifiers::SHIFT) => app.switch_to_previous_tab(),
+        KeyCode::Tab => app.switch_to_next_tab(),
+        KeyCode::BackTab => app.switch_to_previous_tab(),
         _ => {}
     }
 }

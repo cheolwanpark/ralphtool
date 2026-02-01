@@ -1,8 +1,19 @@
-## Purpose
+## MODIFIED Requirements
 
-Defines the conversion preview screen that displays Ralph domain data (tasks, stories, scenarios) from a selected OpenSpec change.
+### Requirement: Screen layout
+The screen SHALL organize information in a readable layout.
 
-## Requirements
+#### Scenario: Tabbed display
+- **WHEN** the preview screen is displayed
+- **THEN** content SHALL be organized into tabs: Tasks and User Stories
+
+#### Scenario: Tab bar position
+- **WHEN** the preview screen is displayed
+- **THEN** the tab bar SHALL appear between the header and content area
+
+#### Scenario: Scrollable content per tab
+- **WHEN** content in the active tab exceeds the visible area
+- **THEN** the user SHALL be able to scroll through the content using arrow keys or Page Up/Down
 
 ### Requirement: Display task hierarchy
 The Tasks tab SHALL display the full task hierarchy from the selected change.
@@ -49,41 +60,3 @@ The User Stories tab SHALL display user stories with their scenarios nested unde
 - **WHEN** a user story has no associated scenarios
 - **THEN** the user story SHALL still be displayed
 - **AND** no scenario section SHALL appear under it
-
-### Requirement: Screen layout
-The screen SHALL organize information in a readable layout.
-
-#### Scenario: Tabbed display
-- **WHEN** the preview screen is displayed
-- **THEN** content SHALL be organized into tabs: Tasks and User Stories
-
-#### Scenario: Tab bar position
-- **WHEN** the preview screen is displayed
-- **THEN** the tab bar SHALL appear between the header and content area
-
-#### Scenario: Scrollable content per tab
-- **WHEN** content in the active tab exceeds the visible area
-- **THEN** the user SHALL be able to scroll through the content using arrow keys or Page Up/Down
-
-### Requirement: Navigation back to selection
-The screen SHALL support returning to the change selection screen.
-
-#### Scenario: Escape returns to selection
-- **WHEN** the user presses Escape on the preview screen
-- **THEN** the screen SHALL transition back to the change selection screen
-- **AND** the previously selected change highlight SHALL be preserved
-
-#### Scenario: Show navigation hint
-- **WHEN** the preview screen is displayed
-- **THEN** a hint showing "Esc: Back to selection" SHALL be visible
-
-### Requirement: Change context display
-The screen SHALL show context about the selected change.
-
-#### Scenario: Show change name
-- **WHEN** the preview screen is displayed
-- **THEN** the name of the selected change SHALL be shown in the header
-
-#### Scenario: Show summary counts
-- **WHEN** the preview screen is displayed
-- **THEN** summary counts SHALL be shown (e.g., "5 tasks, 3 stories, 8 scenarios")

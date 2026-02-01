@@ -5,16 +5,17 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::app::App;
+use crate::app::{App, PreviewTab};
 
 pub fn render_preview(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Create main layout with header and content
+    // Create main layout with header, tab bar, content, and help
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4), // Header
+            Constraint::Length(1), // Tab bar
             Constraint::Min(10),   // Content
             Constraint::Length(3), // Help
         ])
@@ -43,15 +44,71 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL).title(" Preview "));
     frame.render_widget(header, chunks[0]);
 
-    // Build content lines
-    let mut lines: Vec<Line> = Vec::new();
+    // Render tab bar
+    render_tab_bar(frame, app, chunks[1]);
 
-    // Tasks section
-    lines.push(Line::from(Span::styled(
-        "═══ TASKS ═══",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(""));
+    // Render content based on active tab
+    let lines = match app.active_tab {
+        PreviewTab::Tasks => render_tasks_tab(app),
+        PreviewTab::UserStories => render_user_stories_tab(app),
+    };
+
+    // Apply scroll offset
+    let visible_lines: Vec<Line> = lines
+        .into_iter()
+        .skip(app.get_scroll_offset())
+        .collect();
+
+    let content = Paragraph::new(visible_lines)
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(content, chunks[2]);
+
+    // Help text
+    let help = Paragraph::new("↑↓ Scroll  PgUp/PgDn Page  Tab/Shift+Tab Switch  Esc Back  q Quit")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL));
+    frame.render_widget(help, chunks[3]);
+}
+
+fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
+    let tasks_label = match app.active_tab {
+        PreviewTab::Tasks => "[Tasks]",
+        PreviewTab::UserStories => "Tasks",
+    };
+    let stories_label = match app.active_tab {
+        PreviewTab::Tasks => "User Stories",
+        PreviewTab::UserStories => "[User Stories]",
+    };
+
+    let tab_line = Line::from(vec![
+        Span::raw(" "),
+        Span::styled(
+            tasks_label,
+            if app.active_tab == PreviewTab::Tasks {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            },
+        ),
+        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            stories_label,
+            if app.active_tab == PreviewTab::UserStories {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            },
+        ),
+    ]);
+
+    let tab_bar = Paragraph::new(tab_line);
+    frame.render_widget(tab_bar, area);
+}
+
+fn render_tasks_tab(app: &App) -> Vec<Line<'_>> {
+    let mut lines: Vec<Line> = Vec::new();
 
     for story in &app.stories {
         lines.push(Line::from(vec![
@@ -81,19 +138,20 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
         lines.push(Line::from(""));
     }
 
-    // Stories section
-    lines.push(Line::from(Span::styled(
-        "═══ USER STORIES ═══",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(""));
+    lines
+}
+
+fn render_user_stories_tab(app: &App) -> Vec<Line<'_>> {
+    let mut lines: Vec<Line> = Vec::new();
 
     for story in &app.user_stories {
+        // User Story header
         lines.push(Line::from(vec![
             Span::styled("▸ ", Style::default().fg(Color::Yellow)),
             Span::styled(&story.title, Style::default().add_modifier(Modifier::BOLD)),
         ]));
 
+        // Story description
         if !story.description.is_empty() {
             lines.push(Line::from(vec![
                 Span::raw("    "),
@@ -101,75 +159,48 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
             ]));
         }
 
-        if !story.acceptance_criteria.is_empty() {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled("Acceptance Criteria:", Style::default().fg(Color::Green)),
-            ]));
-            for criteria in &story.acceptance_criteria {
+        // Nested scenarios for this user story
+        let scenarios = app.scenarios_for_story(&story.id);
+        if !scenarios.is_empty() {
+            for scenario in scenarios {
+                // Scenario header (indented under user story)
                 lines.push(Line::from(vec![
-                    Span::raw("      • "),
-                    Span::raw(criteria),
+                    Span::raw("    "),
+                    Span::styled("◦ ", Style::default().fg(Color::Magenta)),
+                    Span::styled(&scenario.name, Style::default().fg(Color::Cyan)),
                 ]));
+
+                // Given steps
+                for given in &scenario.given {
+                    lines.push(Line::from(vec![
+                        Span::raw("        "),
+                        Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
+                        Span::raw(given.as_str()),
+                    ]));
+                }
+
+                // When step
+                if !scenario.when.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("        "),
+                        Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
+                        Span::raw(scenario.when.as_str()),
+                    ]));
+                }
+
+                // Then steps
+                for then in &scenario.then {
+                    lines.push(Line::from(vec![
+                        Span::raw("        "),
+                        Span::styled("THEN ", Style::default().fg(Color::Green)),
+                        Span::raw(then.as_str()),
+                    ]));
+                }
             }
         }
+
         lines.push(Line::from(""));
     }
 
-    // Scenarios section
-    lines.push(Line::from(Span::styled(
-        "═══ SCENARIOS ═══",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-    )));
-    lines.push(Line::from(""));
-
-    for scenario in &app.scenarios {
-        lines.push(Line::from(vec![
-            Span::styled("▸ ", Style::default().fg(Color::Yellow)),
-            Span::styled(&scenario.name, Style::default().add_modifier(Modifier::BOLD)),
-        ]));
-
-        for given in &scenario.given {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled("GIVEN ", Style::default().fg(Color::Blue)),
-                Span::raw(given),
-            ]));
-        }
-
-        if !scenario.when.is_empty() {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled("WHEN ", Style::default().fg(Color::Magenta)),
-                Span::raw(&scenario.when),
-            ]));
-        }
-
-        for then in &scenario.then {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled("THEN ", Style::default().fg(Color::Green)),
-                Span::raw(then),
-            ]));
-        }
-        lines.push(Line::from(""));
-    }
-
-    // Apply scroll offset
-    let visible_lines: Vec<Line> = lines
-        .into_iter()
-        .skip(app.scroll_offset)
-        .collect();
-
-    let content = Paragraph::new(visible_lines)
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(content, chunks[1]);
-
-    // Help text
-    let help = Paragraph::new("↑↓ Scroll  PgUp/PgDn Page  Esc Back  q Quit")
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(help, chunks[2]);
+    lines
 }
