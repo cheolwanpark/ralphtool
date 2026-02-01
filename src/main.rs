@@ -1,3 +1,4 @@
+mod agent;
 mod app;
 mod event;
 mod ralph;
@@ -7,17 +8,31 @@ use std::io;
 use std::panic;
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
 
+use agent::cli::{Cli, RootCommand};
 use app::App;
 use event::handle_events;
 use ui::render;
 
 fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    // If agent subcommand is present, run agent mode
+    if let Some(RootCommand::Agent { command }) = cli.command {
+        return agent::run(command);
+    }
+
+    // Otherwise, run TUI mode
+    run_tui()
+}
+
+fn run_tui() -> Result<()> {
     // Check if openspec CLI is available
     if let Err(e) = check_openspec_cli() {
         eprintln!("Error: {}", e);
