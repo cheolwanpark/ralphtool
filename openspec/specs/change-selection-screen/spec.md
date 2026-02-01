@@ -51,4 +51,5 @@ The screen SHALL provide visual feedback for the current selection.
 
 #### Scenario: Show selection instructions
 - **WHEN** the selection screen is displayed
-- **THEN** instructions for navigation SHALL be visible (e.g., "↑↓ Navigate, Enter Select, q Quit")
+- **THEN** instructions for navigation SHALL be visible in the header keybindings section
+- **AND** no separate footer help section SHALL be rendered

@@ -6,26 +6,34 @@ use ratatui::{
 };
 
 use crate::app::App;
+use super::{render_header, HeaderContext};
+
+/// Keybindings for the selection screen.
+const SELECTION_KEYBINDINGS: [&str; 3] = [
+    "↑↓ Navigate",
+    "Enter Select",
+    "q Quit",
+];
 
 pub fn render_selection(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Create main layout with title, list, and help
+    // Create main layout with header and list
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Title
+            Constraint::Length(5), // Header (5 lines including borders)
             Constraint::Min(5),    // List
-            Constraint::Length(3), // Help
         ])
         .split(area);
 
-    // Title
-    let title = Paragraph::new("Select a Completed Change")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title(" ralphtool "));
-    frame.render_widget(title, chunks[0]);
+    // Header
+    let header_ctx = HeaderContext {
+        title: "Selection",
+        context: Some("Select a Completed Change"),
+        keybindings: &SELECTION_KEYBINDINGS,
+    };
+    render_header(frame, chunks[0], &header_ctx);
 
     // Change list or empty state
     if app.available_changes.is_empty() {
@@ -64,11 +72,4 @@ pub fn render_selection(frame: &mut Frame, app: &App) {
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
         frame.render_widget(list, chunks[1]);
     }
-
-    // Help text
-    let help = Paragraph::new("↑↓ Navigate  Enter Select  q Quit")
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(help, chunks[2]);
 }

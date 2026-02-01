@@ -6,43 +6,47 @@ use ratatui::{
 };
 
 use crate::app::{App, PreviewTab};
+use super::{render_header, HeaderContext};
+
+/// Keybindings for the preview screen.
+const PREVIEW_KEYBINDINGS: [&str; 5] = [
+    "↑↓ Scroll",
+    "Tab Switch",
+    "R Run",
+    "Esc Back",
+    "q Quit",
+];
 
 pub fn render_preview(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Create main layout with header, tab bar, content, and help
+    // Create main layout with header, tab bar, and content
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4), // Header
+            Constraint::Length(5), // Header (3 content + 2 borders)
             Constraint::Length(1), // Tab bar
             Constraint::Min(10),   // Content
-            Constraint::Length(3), // Help
         ])
         .split(area);
 
-    // Header with change name and counts
+    // Header with change name and counts as context
     let change_name = app.selected_change_name.as_deref().unwrap_or("Unknown");
     let task_count: usize = app.stories.iter().flat_map(|s| &s.tasks).count();
     let story_count = app.stories.len();
     let scenario_count = app.scenarios.len();
 
-    let header_text = vec![
-        Line::from(vec![
-            Span::styled("Change: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(change_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                format!("{} tasks, {} stories, {} scenarios", task_count, story_count, scenario_count),
-                Style::default().fg(Color::Yellow),
-            ),
-        ]),
-    ];
+    let context_info = format!(
+        "{}: {} tasks, {} stories, {} scenarios",
+        change_name, task_count, story_count, scenario_count
+    );
 
-    let header = Paragraph::new(header_text)
-        .block(Block::default().borders(Borders::ALL).title(" Preview "));
-    frame.render_widget(header, chunks[0]);
+    let header_ctx = HeaderContext {
+        title: "Preview",
+        context: Some(&context_info),
+        keybindings: &PREVIEW_KEYBINDINGS,
+    };
+    render_header(frame, chunks[0], &header_ctx);
 
     // Render tab bar
     render_tab_bar(frame, app, chunks[1]);
@@ -63,13 +67,6 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL))
         .wrap(Wrap { trim: false });
     frame.render_widget(content, chunks[2]);
-
-    // Help text
-    let help = Paragraph::new("↑↓ Scroll  PgUp/PgDn Page  Tab/Shift+Tab Switch  Esc Back  q Quit")
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(help, chunks[3]);
 }
 
 fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {

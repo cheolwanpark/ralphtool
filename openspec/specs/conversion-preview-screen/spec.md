@@ -51,7 +51,17 @@ The Scenarios tab SHALL display scenarios organized by their source capability.
 - **AND** the WHEN step SHALL be shown
 - **AND** THEN steps SHALL be listed
 
+### Requirement: Run loop action
+
+The Preview screen SHALL support starting the Ralph loop for the selected change.
+
+#### Scenario: R key triggers loop start
+- **WHEN** the user presses 'R' or 'r' on the Preview screen
+- **THEN** the screen SHALL transition to LoopExecution
+- **AND** the selected change SHALL be passed to the loop
+
 ### Requirement: Screen layout
+
 The screen SHALL organize information in a readable layout.
 
 #### Scenario: Tabbed display
@@ -66,7 +76,14 @@ The screen SHALL organize information in a readable layout.
 - **WHEN** content in the active tab exceeds the visible area
 - **THEN** the user SHALL be able to scroll through the content using arrow keys or Page Up/Down
 
+#### Scenario: Unified header
+- **WHEN** the preview screen is displayed
+- **THEN** the header SHALL use the shared header component
+- **AND** the header SHALL display change name and summary counts as context
+- **AND** no separate footer help section SHALL be rendered
+
 ### Requirement: Navigation back to selection
+
 The screen SHALL support returning to the change selection screen.
 
 #### Scenario: Escape returns to selection
@@ -76,7 +93,7 @@ The screen SHALL support returning to the change selection screen.
 
 #### Scenario: Show navigation hint
 - **WHEN** the preview screen is displayed
-- **THEN** a hint showing "Esc: Back to selection" SHALL be visible
+- **THEN** the Esc keybinding SHALL be visible in the header keybindings section
 
 ### Requirement: Change context display
 The screen SHALL show context about the selected change.

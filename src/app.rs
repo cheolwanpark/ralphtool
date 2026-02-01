@@ -12,11 +12,9 @@ pub enum Screen {
     ChangeSelection,
     /// Screen for previewing conversion results.
     ConversionPreview,
-    /// Screen for displaying loop progress (future integration).
-    #[allow(dead_code)]
+    /// Screen for displaying loop progress.
     LoopExecution,
-    /// Screen for reviewing loop results (future integration).
-    #[allow(dead_code)]
+    /// Screen for reviewing loop results.
     LoopResult,
 }
 
@@ -82,7 +80,6 @@ impl App {
     }
 
     /// Starts the loop execution for the selected change.
-    #[allow(dead_code)]
     pub fn start_loop(&mut self) {
         if let Some(ref name) = self.selected_change_name {
             self.loop_state = LoopState::new(name);
@@ -92,19 +89,16 @@ impl App {
     }
 
     /// Adds a log message to the loop log.
-    #[allow(dead_code)]
     pub fn add_loop_log(&mut self, message: String) {
         self.loop_log.push(message);
     }
 
     /// Updates the loop state.
-    #[allow(dead_code)]
     pub fn update_loop_state(&mut self, state: LoopState) {
         self.loop_state = state;
     }
 
     /// Transitions to the result screen with the given result.
-    #[allow(dead_code)]
     pub fn show_loop_result(&mut self, result: LoopResult) {
         self.loop_result = result;
         self.result_scroll_offset = 0;

@@ -7,10 +7,16 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Gauge, List, ListItem},
 };
 
 use crate::ralph_loop::LoopState;
+use super::{render_header as render_shared_header, HeaderContext};
+
+/// Keybindings for the loop execution screen.
+const LOOP_KEYBINDINGS: [&str; 1] = [
+    "q Stop",
+];
 
 /// Renders the loop execution screen.
 pub fn render_loop_screen(frame: &mut Frame, state: &LoopState, log: &[String]) {
@@ -20,46 +26,36 @@ pub fn render_loop_screen(frame: &mut Frame, state: &LoopState, log: &[String]) 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header
+            Constraint::Length(5), // Header (3 content + 2 borders)
             Constraint::Length(5), // Progress
             Constraint::Min(10),   // Log
-            Constraint::Length(1), // Footer
         ])
         .split(area);
 
-    // Header
-    render_header(frame, chunks[0], state);
+    // Header using shared component
+    let status = if state.running { "Running" } else { "Stopped" };
+    let story_info = if let Some(ref story) = state.current_story {
+        format!("Story: {}", story)
+    } else {
+        "Waiting...".to_string()
+    };
+    let context_info = format!(
+        "{} | {} [{}]",
+        state.change_name, story_info, status
+    );
+
+    let header_ctx = HeaderContext {
+        title: "Loop Execution",
+        context: Some(&context_info),
+        keybindings: &LOOP_KEYBINDINGS,
+    };
+    render_shared_header(frame, chunks[0], &header_ctx);
 
     // Progress
     render_progress(frame, chunks[1], state);
 
     // Log
     render_log(frame, chunks[2], log);
-
-    // Footer
-    render_footer(frame, chunks[3]);
-}
-
-fn render_header(frame: &mut Frame, area: Rect, state: &LoopState) {
-    let title = format!(" Ralph Loop: {} ", state.change_name);
-    let status = if state.running {
-        "Running"
-    } else {
-        "Stopped"
-    };
-
-    let header = Paragraph::new(format!(
-        "{} [{}]",
-        if let Some(ref story) = state.current_story {
-            format!("Story: {}", story)
-        } else {
-            "Waiting...".to_string()
-        },
-        status
-    ))
-    .block(Block::default().title(title).borders(Borders::ALL));
-
-    frame.render_widget(header, area);
 }
 
 fn render_progress(frame: &mut Frame, area: Rect, state: &LoopState) {
@@ -118,10 +114,4 @@ fn render_log(frame: &mut Frame, area: Rect, log: &[String]) {
         .block(Block::default().title(" Log ").borders(Borders::ALL));
 
     frame.render_widget(log_list, area);
-}
-
-fn render_footer(frame: &mut Frame, area: Rect) {
-    let footer = Paragraph::new(" Press 'q' to stop the loop ")
-        .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(footer, area);
 }

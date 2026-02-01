@@ -43,6 +43,7 @@ fn handle_selection_events(app: &mut App, code: KeyCode) -> Result<()> {
 fn handle_preview_events(app: &mut App, code: KeyCode, modifiers: KeyModifiers) {
     match code {
         KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
+        KeyCode::Char('r') | KeyCode::Char('R') => app.start_loop(),
         KeyCode::Esc => app.back_to_selection(),
         KeyCode::Up => app.scroll_up(),
         KeyCode::Down => app.scroll_down(),

@@ -10,6 +10,15 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
+use super::{render_header as render_shared_header, HeaderContext};
+
+/// Keybindings for the result screen.
+const RESULT_KEYBINDINGS: [&str; 3] = [
+    "↑↓ Scroll",
+    "Esc Back",
+    "q Quit",
+];
+
 /// Result data for display.
 #[derive(Debug, Clone, Default)]
 pub struct LoopResult {
@@ -48,20 +57,25 @@ pub struct VerificationResult {
 pub fn render_result_screen(frame: &mut Frame, result: &LoopResult, scroll_offset: usize) {
     let area = frame.area();
 
-    // Split into header, summary, files, verification, and footer
+    // Split into header, summary, files, and verification sections
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header
+            Constraint::Length(5), // Header (3 content + 2 borders)
             Constraint::Length(5), // Summary
             Constraint::Min(5),    // Changed files
             Constraint::Length(6), // Verification
-            Constraint::Length(1), // Footer
         ])
         .split(area);
 
-    // Header
-    render_header(frame, chunks[0], result);
+    // Header using shared component
+    let context_info = format!("Loop Complete: {}", result.change_name);
+    let header_ctx = HeaderContext {
+        title: "Result",
+        context: Some(&context_info),
+        keybindings: &RESULT_KEYBINDINGS,
+    };
+    render_shared_header(frame, chunks[0], &header_ctx);
 
     // Summary
     render_summary(frame, chunks[1], result);
@@ -71,16 +85,6 @@ pub fn render_result_screen(frame: &mut Frame, result: &LoopResult, scroll_offse
 
     // Verification status
     render_verification(frame, chunks[3], result);
-
-    // Footer
-    render_footer(frame, chunks[4]);
-}
-
-fn render_header(frame: &mut Frame, area: Rect, result: &LoopResult) {
-    let title = format!(" Loop Complete: {} ", result.change_name);
-    let header = Paragraph::new("Review the changes made during the loop.")
-        .block(Block::default().title(title).borders(Borders::ALL));
-    frame.render_widget(header, area);
 }
 
 fn render_summary(frame: &mut Frame, area: Rect, result: &LoopResult) {
@@ -142,10 +146,4 @@ fn render_verification(frame: &mut Frame, area: Rect, result: &LoopResult) {
         .block(Block::default().title(" Verification ").borders(Borders::ALL));
 
     frame.render_widget(verification_list, area);
-}
-
-fn render_footer(frame: &mut Frame, area: Rect) {
-    let footer = Paragraph::new(" Press 'q' to exit | ↑↓ to scroll ")
-        .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(footer, area);
 }
