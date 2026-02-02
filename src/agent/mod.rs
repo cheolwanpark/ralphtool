@@ -12,80 +12,48 @@ mod prompt;
 
 pub use prompt::PromptBuilder;
 
-use std::collections::HashMap;
-use std::time::Duration;
-
 use crate::error::Result;
+
+/// Prompt for a coding agent with separate system and user components.
+#[derive(Debug, Clone, Default)]
+pub struct Prompt {
+    /// System prompt (appended to Claude's default system prompt).
+    pub system: String,
+    /// User prompt (the main instruction).
+    pub user: String,
+}
+
+/// Response from a coding agent run with execution metadata.
+#[derive(Debug, Clone, Default)]
+pub struct Response {
+    /// The result/response text from the agent.
+    pub content: String,
+    /// Number of turns taken by the agent.
+    pub turns: u32,
+    /// Total tokens used (input + output).
+    pub tokens: u32,
+    /// Total cost in USD.
+    pub cost: f64,
+}
+
+/// Stream event from a coding agent.
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    /// Intermediate message from the agent.
+    Message(String),
+    /// Final result with execution metadata.
+    Done(Response),
+}
+
+// Re-export ClaudeAgent and AgentStream for use
+#[allow(unused_imports)]
+pub use claude::{AgentStream, ClaudeAgent};
 
 /// Trait for AI coding agent backends.
 ///
-/// Implementations spawn an AI agent with a prompt and configuration,
-/// then return the agent's output when complete.
+/// Implementations spawn an AI agent with a prompt,
+/// then return a stream of events from the agent.
 pub trait CodingAgent {
-    /// Spawn agent with prompt and configuration, return output when complete.
-    fn run(&self, prompt: &str, config: &AgentConfig) -> Result<AgentOutput>;
+    /// Spawn agent with prompt, return a stream of events.
+    fn run(&self, prompt: &Prompt) -> Result<AgentStream>;
 }
-
-/// Configuration for spawning a coding agent.
-#[derive(Debug, Clone, Default)]
-pub struct AgentConfig {
-    /// Maximum number of turns before the agent stops.
-    pub max_turns: u32,
-
-    /// Timeout for the agent execution.
-    #[allow(dead_code)]
-    pub timeout: Duration,
-
-    /// Additional environment variables to pass to the subprocess.
-    pub env: HashMap<String, String>,
-}
-
-impl AgentConfig {
-    /// Create a new AgentConfig with default values.
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self {
-            max_turns: 50,
-            timeout: Duration::from_secs(600), // 10 minutes
-            env: HashMap::new(),
-        }
-    }
-
-    /// Set additional environment variables.
-    #[allow(dead_code)]
-    pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
-        self.env = env;
-        self
-    }
-}
-
-/// Output from a coding agent run.
-#[derive(Debug, Clone)]
-pub struct AgentOutput {
-    /// The result/response text from the agent.
-    pub result: String,
-
-    /// Session ID for the agent run (if available).
-    #[allow(dead_code)]
-    pub session_id: String,
-
-    /// Token usage statistics.
-    #[allow(dead_code)]
-    pub usage: TokenUsage,
-}
-
-/// Token usage statistics from an agent run.
-#[derive(Debug, Clone, Default)]
-pub struct TokenUsage {
-    /// Number of input tokens consumed.
-    #[allow(dead_code)]
-    pub input_tokens: u64,
-
-    /// Number of output tokens generated.
-    #[allow(dead_code)]
-    pub output_tokens: u64,
-}
-
-// Re-export ClaudeAgent for future use
-#[allow(unused_imports)]
-pub use claude::ClaudeAgent;

@@ -98,7 +98,7 @@ impl App {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::mpsc;
 
-        use crate::agent::{AgentConfig, ClaudeAgent};
+        use crate::agent::ClaudeAgent;
         use crate::ralph_loop::Orchestrator;
 
         if let Some(ref name) = self.selected_change_name {
@@ -138,9 +138,7 @@ impl App {
 
                     // Create and run orchestrator
                     let agent = Box::new(ClaudeAgent::new());
-                    let config = AgentConfig::default();
-                    let mut orchestrator =
-                        Orchestrator::new(&change_name, agent, config, tokio_tx);
+                    let mut orchestrator = Orchestrator::new(&change_name, agent, tokio_tx);
 
                     // Set the stop flag on the orchestrator
                     let orch_stop = orchestrator.stop_handle();

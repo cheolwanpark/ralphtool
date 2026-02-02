@@ -4,6 +4,7 @@
 //! The prompt tells the agent how to work on a single story of a change,
 //! with relevant scenarios and completion signal instructions.
 
+use super::Prompt;
 use crate::error::Result;
 use crate::spec::{Scenario, SpecAdapter, Story};
 
@@ -31,7 +32,7 @@ impl<'a> PromptBuilder<'a> {
     /// - All scenarios with instruction to focus on relevant ones
     /// - Spec tool usage instructions from adapter
     /// - Completion signal instructions (`<promise>COMPLETE</promise>`)
-    pub fn for_story(&self, story_id: &str) -> Result<String> {
+    pub fn for_story(&self, story_id: &str) -> Result<Prompt> {
         let context = self.adapter.context(story_id)?;
         let all_scenarios = self.adapter.scenarios()?;
 
@@ -81,7 +82,10 @@ impl<'a> PromptBuilder<'a> {
         sections.push("3. If verification fails, fix issues and re-verify before signaling\n".to_string());
         sections.push("**Important**: Only output `<promise>COMPLETE</promise>` after ALL tasks in this story are done AND verification passes.".to_string());
 
-        Ok(sections.join("\n"))
+        Ok(Prompt {
+            system: String::new(),
+            user: sections.join("\n"),
+        })
     }
 
     /// Format tasks for display in the prompt.
@@ -186,7 +190,8 @@ mod tests {
         let builder = PromptBuilder::new(&adapter, "test-change");
         let prompt = builder.for_story("1").unwrap();
 
-        assert!(prompt.contains("Story 1: Test Story"));
+        assert!(prompt.user.contains("Story 1: Test Story"));
+        assert!(prompt.system.is_empty());
     }
 
     #[test]
@@ -214,8 +219,8 @@ mod tests {
         let builder = PromptBuilder::new(&adapter, "test-change");
         let prompt = builder.for_story("1").unwrap();
 
-        assert!(prompt.contains("[ ] 1.1 First task"));
-        assert!(prompt.contains("[x] 1.2 Second task"));
+        assert!(prompt.user.contains("[ ] 1.1 First task"));
+        assert!(prompt.user.contains("[x] 1.2 Second task"));
     }
 
     #[test]
@@ -232,7 +237,7 @@ mod tests {
         let builder = PromptBuilder::new(&adapter, "test-change");
         let prompt = builder.for_story("1").unwrap();
 
-        assert!(prompt.contains("<promise>COMPLETE</promise>"));
+        assert!(prompt.user.contains("<promise>COMPLETE</promise>"));
     }
 
     #[test]
@@ -256,8 +261,8 @@ mod tests {
         let builder = PromptBuilder::new(&adapter, "test-change");
         let prompt = builder.for_story("1").unwrap();
 
-        assert!(prompt.contains("Focus on scenarios relevant to this story"));
-        assert!(prompt.contains("Test Scenario"));
+        assert!(prompt.user.contains("Focus on scenarios relevant to this story"));
+        assert!(prompt.user.contains("Test Scenario"));
     }
 
     #[test]
@@ -274,7 +279,7 @@ mod tests {
         let builder = PromptBuilder::new(&adapter, "test-change");
         let prompt = builder.for_story("1").unwrap();
 
-        assert!(prompt.contains("Mock tool instructions"));
+        assert!(prompt.user.contains("Mock tool instructions"));
     }
 
     #[test]
@@ -291,7 +296,7 @@ mod tests {
         let builder = PromptBuilder::new(&adapter, "test-change");
         let prompt = builder.for_story("1").unwrap();
 
-        assert!(prompt.contains("Story 1 only"));
-        assert!(prompt.contains("Do not work on other stories"));
+        assert!(prompt.user.contains("Story 1 only"));
+        assert!(prompt.user.contains("Do not work on other stories"));
     }
 }

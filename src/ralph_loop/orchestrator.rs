@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use super::{LoopEvent, LoopEventSender, LoopState};
-use crate::agent::{AgentConfig, CodingAgent, PromptBuilder};
+use crate::agent::{CodingAgent, PromptBuilder, StreamEvent};
 use crate::error::Result;
 use crate::spec::{self, Story};
 
@@ -27,9 +27,6 @@ pub struct Orchestrator {
     /// Coding agent to use.
     agent: Box<dyn CodingAgent>,
 
-    /// Agent configuration.
-    config: AgentConfig,
-
     /// Event sender for TUI updates.
     event_tx: LoopEventSender,
 
@@ -39,16 +36,10 @@ pub struct Orchestrator {
 
 impl Orchestrator {
     /// Create a new orchestrator.
-    pub fn new(
-        change_name: &str,
-        agent: Box<dyn CodingAgent>,
-        config: AgentConfig,
-        event_tx: LoopEventSender,
-    ) -> Self {
+    pub fn new(change_name: &str, agent: Box<dyn CodingAgent>, event_tx: LoopEventSender) -> Self {
         Self {
             change_name: change_name.to_string(),
             agent,
-            config,
             event_tx,
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -115,16 +106,32 @@ impl Orchestrator {
                     let prompt = prompt_builder.for_story(&story.id)?;
 
                     // Run agent for this story
-                    match self.agent.run(&prompt, &self.config) {
-                        Ok(output) => {
-                            // Emit agent output
+                    match self.agent.run(&prompt) {
+                        Ok(stream) => {
+                            let mut final_content = String::new();
+
+                            // Process streaming events
+                            for event in stream {
+                                match event {
+                                    StreamEvent::Message(text) => {
+                                        // Emit intermediate message
+                                        self.emit(LoopEvent::AgentOutput { line: text }).await;
+                                    }
+                                    StreamEvent::Done(response) => {
+                                        // Store final content for completion check
+                                        final_content = response.content;
+                                    }
+                                }
+                            }
+
+                            // Emit final output
                             self.emit(LoopEvent::AgentOutput {
-                                line: output.result.clone(),
+                                line: final_content.clone(),
                             })
                             .await;
 
                             // Check for completion signal
-                            if output.result.contains(COMPLETION_SIGNAL) {
+                            if final_content.contains(COMPLETION_SIGNAL) {
                                 // Story completed, continue to next iteration
                                 // (adapter will be refreshed at the start of next loop)
                                 continue;
@@ -184,20 +191,27 @@ fn is_story_complete(story: &Story) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::{AgentOutput, TokenUsage};
+    use crate::agent::{AgentStream, Prompt, Response};
     use crate::spec::Task;
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
 
     struct MockAgent {
-        output: String,
+        response: Response,
     }
 
     impl CodingAgent for MockAgent {
-        fn run(&self, _prompt: &str, _config: &AgentConfig) -> Result<AgentOutput> {
-            Ok(AgentOutput {
-                result: self.output.clone(),
-                session_id: "mock-session".to_string(),
-                usage: TokenUsage::default(),
-            })
+        fn run(&self, _prompt: &Prompt) -> Result<AgentStream> {
+            // Create a simple command that outputs nothing (for mock purposes)
+            let mut child = Command::new("true")
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("Failed to spawn mock process");
+
+            let stdout = child.stdout.take().unwrap();
+            let reader = BufReader::new(stdout);
+
+            Ok(AgentStream::new_for_test(child, reader.lines()))
         }
     }
 
@@ -307,9 +321,8 @@ mod tests {
         let orchestrator = Orchestrator::new(
             "test-change",
             Box::new(MockAgent {
-                output: "test".to_string(),
+                response: Response::default(),
             }),
-            AgentConfig::default(),
             tx,
         );
 
