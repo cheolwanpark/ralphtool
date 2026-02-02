@@ -155,11 +155,21 @@ fn render_tasks_tab(frame: &mut Frame, area: Rect, result: &LoopResult, scroll_o
         lines.push(Line::from(""));
     }
 
-    // Create paragraph with native scroll
-    let content = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL))
-        .scroll((scroll_offset as u16, 0));
+    // Create paragraph to calculate actual rendered line count
+    let block = Block::default().borders(Borders::ALL);
+    let inner_area = block.inner(area);
+    let paragraph = Paragraph::new(lines).block(block);
 
+    // Get actual rendered line count
+    let total_lines = paragraph.line_count(inner_area.width);
+    let visible_height = inner_area.height as usize;
+    let max_scroll = total_lines.saturating_sub(visible_height);
+
+    // Clamp scroll offset to valid bounds
+    let clamped_scroll = scroll_offset.min(max_scroll) as u16;
+
+    // Apply native scroll
+    let content = paragraph.scroll((clamped_scroll, 0));
     frame.render_widget(content, area);
 }
 
@@ -196,10 +206,20 @@ fn render_changed_files(frame: &mut Frame, area: Rect, result: &LoopResult, scro
 
     let title = format!(" Changed Files ({}) ", result.changed_files.len());
 
-    // Create paragraph with native scroll
-    let content = Paragraph::new(lines)
-        .block(Block::default().title(title).borders(Borders::ALL))
-        .scroll((scroll_offset as u16, 0));
+    // Create paragraph to calculate actual rendered line count
+    let block = Block::default().title(title).borders(Borders::ALL);
+    let inner_area = block.inner(area);
+    let paragraph = Paragraph::new(lines).block(block);
 
+    // Get actual rendered line count
+    let total_lines = paragraph.line_count(inner_area.width);
+    let visible_height = inner_area.height as usize;
+    let max_scroll = total_lines.saturating_sub(visible_height);
+
+    // Clamp scroll offset to valid bounds
+    let clamped_scroll = scroll_offset.min(max_scroll) as u16;
+
+    // Apply native scroll
+    let content = paragraph.scroll((clamped_scroll, 0));
     frame.render_widget(content, area);
 }

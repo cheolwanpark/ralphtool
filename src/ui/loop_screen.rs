@@ -282,12 +282,23 @@ fn render_info_tab(frame: &mut Frame, area: Rect, app: &App) {
         )));
     }
 
-    // Create paragraph with native scroll
-    let scroll_offset = app.loop_info_scroll as u16;
-    let content = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false })
-        .scroll((scroll_offset, 0));
+    // Create paragraph to calculate actual rendered line count
+    let block = Block::default().borders(Borders::ALL);
+    let inner_area = block.inner(area);
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    // Get actual rendered line count (accounting for wrap)
+    let total_lines = paragraph.line_count(inner_area.width);
+    let visible_height = inner_area.height as usize;
+    let max_scroll = total_lines.saturating_sub(visible_height);
+
+    // Clamp scroll offset to valid bounds
+    let scroll_offset = app.loop_info_scroll.min(max_scroll) as u16;
+
+    // Apply native scroll
+    let content = paragraph.scroll((scroll_offset, 0));
     frame.render_widget(content, area);
 }
 

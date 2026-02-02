@@ -61,12 +61,23 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
         PreviewTab::Scenarios => render_scenarios_tab(app),
     };
 
-    // Create paragraph with native scroll
-    let scroll_offset = app.get_scroll_offset() as u16;
-    let content = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false })
-        .scroll((scroll_offset, 0));
+    // Create paragraph to calculate actual rendered line count
+    let block = Block::default().borders(Borders::ALL);
+    let inner_area = block.inner(chunks[1]);
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    // Get actual rendered line count (accounting for wrap)
+    let total_lines = paragraph.line_count(inner_area.width);
+    let visible_height = inner_area.height as usize;
+    let max_scroll = total_lines.saturating_sub(visible_height);
+
+    // Clamp scroll offset to valid bounds
+    let scroll_offset = (app.get_scroll_offset()).min(max_scroll) as u16;
+
+    // Apply native scroll
+    let content = paragraph.scroll((scroll_offset, 0));
     frame.render_widget(content, chunks[1]);
 }
 
