@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use crate::ralph_loop::LoopState;
-use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
+use super::{centered_rect, render_header_auto, HeaderSection};
 
 /// Keybindings for the loop execution screen (single string for new header format).
 const LOOP_KEYBINDINGS: &str = "q Stop";
@@ -21,8 +21,8 @@ const LOOP_KEYBINDINGS: &str = "q Stop";
 pub fn render_loop_screen(frame: &mut Frame, state: &LoopState, log: &[String]) {
     let area = frame.area();
 
-    // Center the content within max width (no max height constraint)
-    let centered = centered_rect(area, MAX_WIDTH, area.height);
+    // Center the content using responsive width
+    let centered = centered_rect(area);
 
     // Build description with change name and running status
     let status_text = if state.running { "Running" } else { "Stopped" };

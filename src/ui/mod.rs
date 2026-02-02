@@ -16,7 +16,6 @@ use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
 
 // Layout constants for centered container
-pub const MAX_WIDTH: u16 = 100;
 const MIN_HEIGHT_FOR_LOGO: u16 = 24;
 const HEADER_LINES: u16 = 8;
 const HEADER_LINES_COMPACT: u16 = 1;
@@ -144,18 +143,27 @@ pub(crate) fn render_header_auto(frame: &mut Frame, area: Rect, header: &HeaderS
 }
 
 
-/// Calculates a centered rectangle within the given area, constrained by max dimensions.
+/// Calculates responsive content width as 85% of terminal width, clamped to [60, 140].
+///
+/// This provides a fluid layout that adapts to terminal size while maintaining
+/// readability bounds:
+/// - Minimum 60 columns ensures content remains readable
+/// - Maximum 140 columns prevents overly wide text
+/// - 85% provides comfortable margins without wasting space
+pub(crate) fn responsive_width(terminal_width: u16) -> u16 {
+    let target = (terminal_width as f32 * 0.85) as u16;
+    target.clamp(60, 140)
+}
+
+/// Calculates a centered rectangle within the given area using responsive width.
 ///
 /// Returns a `Rect` that is:
-/// - At most `max_width` wide, centered horizontally
-/// - At most `max_height` tall, centered vertically
-/// - If the area is smaller than the max dimensions, uses the full area dimension
-pub(crate) fn centered_rect(area: Rect, max_width: u16, max_height: u16) -> Rect {
-    let width = area.width.min(max_width);
-    let height = area.height.min(max_height);
+/// - Responsive width (85% of terminal, clamped to [60, 140]), centered horizontally
+/// - Full height of the area
+pub(crate) fn centered_rect(area: Rect) -> Rect {
+    let width = responsive_width(area.width);
     let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
-    Rect::new(x, y, width, height)
+    Rect::new(x, area.y, width, area.height)
 }
 
 use crate::app::{App, Screen};

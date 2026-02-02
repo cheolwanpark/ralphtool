@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::app::App;
-use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
+use super::{centered_rect, render_header_auto, HeaderSection};
 
 /// Keybindings for the selection screen (single string for new header format).
 const SELECTION_KEYBINDINGS: &str = "↑↓ Navigate  Enter Select  q Quit";
@@ -14,8 +14,8 @@ const SELECTION_KEYBINDINGS: &str = "↑↓ Navigate  Enter Select  q Quit";
 pub fn render_selection(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Center the content within max width (no max height constraint)
-    let centered = centered_rect(area, MAX_WIDTH, area.height);
+    // Center the content using responsive width
+    let centered = centered_rect(area);
 
     // Header section data
     let header = HeaderSection {

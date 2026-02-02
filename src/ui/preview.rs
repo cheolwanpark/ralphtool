@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::app::{App, PreviewTab};
-use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
+use super::{centered_rect, render_header_auto, HeaderSection};
 
 /// Keybindings for the preview screen (single string for new header format).
 const PREVIEW_KEYBINDINGS: &str = "↑↓ Scroll  Tab Switch  R Run  Esc Back  q Quit";
@@ -14,8 +14,8 @@ const PREVIEW_KEYBINDINGS: &str = "↑↓ Scroll  Tab Switch  R Run  Esc Back  q
 pub fn render_preview(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Center the content within max width (no max height constraint)
-    let centered = centered_rect(area, MAX_WIDTH, area.height);
+    // Center the content using responsive width
+    let centered = centered_rect(area);
 
     // Build description with change name and counts as context
     let change_name = app.selected_change_name.as_deref().unwrap_or("Unknown");

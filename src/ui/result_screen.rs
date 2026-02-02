@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
+use super::{centered_rect, render_header_auto, HeaderSection};
 
 /// Keybindings for the result screen (single string for new header format).
 const RESULT_KEYBINDINGS: &str = "↑↓ Scroll  Esc Back  q Quit";
@@ -53,8 +53,8 @@ pub struct VerificationResult {
 pub fn render_result_screen(frame: &mut Frame, result: &LoopResult, scroll_offset: usize) {
     let area = frame.area();
 
-    // Center the content within max width (no max height constraint)
-    let centered = centered_rect(area, MAX_WIDTH, area.height);
+    // Center the content using responsive width
+    let centered = centered_rect(area);
 
     // Build description with change name and completion status
     let description = format!("Loop Complete: {}", result.change_name);
