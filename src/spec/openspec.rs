@@ -468,6 +468,59 @@ impl SpecAdapter for OpenSpecAdapter {
     fn verify_commands(&self) -> Result<VerifyCommands> {
         infer_verify_commands()
     }
+
+    fn tool_prompt(&self) -> String {
+        let verify = infer_verify_commands().unwrap_or_default();
+        let change_dir = self.change_dir.display();
+
+        let mut sections = Vec::new();
+
+        // File locations
+        sections.push("## OpenSpec File Locations\n".to_string());
+        sections.push(format!("- `{}/proposal.md` - Motivation and scope", change_dir));
+        sections.push(format!("- `{}/design.md` - Technical decisions", change_dir));
+        sections.push(format!(
+            "- `{}/tasks.md` - Stories and tasks to implement",
+            change_dir
+        ));
+        sections.push(format!(
+            "- `{}/specs/` - Detailed requirements with Given/When/Then scenarios\n",
+            change_dir
+        ));
+
+        // Task marking instructions
+        sections.push("## Marking Tasks Complete\n".to_string());
+        sections.push(format!(
+            "Edit `{}/tasks.md` directly to mark tasks complete:",
+            change_dir
+        ));
+        sections.push("- Change `- [ ]` to `- [x]` for completed tasks".to_string());
+        sections.push(
+            "- Example: `- [ ] 1.1 Task description` becomes `- [x] 1.1 Task description`\n"
+                .to_string(),
+        );
+
+        // Scenario format explanation
+        sections.push("## Scenario Format\n".to_string());
+        sections.push("Specs use Given/When/Then format:".to_string());
+        sections.push("- **GIVEN** preconditions that must be true".to_string());
+        sections.push("- **WHEN** the action or trigger occurs".to_string());
+        sections.push("- **THEN** the expected outcomes\n".to_string());
+
+        // Verification commands
+        sections.push("## Verification Commands\n".to_string());
+        if !verify.checks.is_empty() {
+            sections.push("Run these checks after implementing:".to_string());
+            for check in &verify.checks {
+                sections.push(format!("```bash\n{}\n```", check));
+            }
+        }
+        if !verify.tests.is_empty() {
+            sections.push(format!("\nRun tests:\n```bash\n{}\n```", verify.tests));
+        }
+
+        sections.join("\n")
+    }
 }
 
 // Note: mark_done and append_learnings have been removed.
@@ -561,5 +614,65 @@ mod tests {
     #[test]
     fn extract_step_then() {
         assert_eq!(extract_step("- **THEN** result is shown"), "result is shown");
+    }
+
+    #[test]
+    fn tool_prompt_contains_file_locations() {
+        // Create a minimal adapter with mock data for testing
+        use std::path::PathBuf;
+
+        let adapter = OpenSpecAdapter {
+            change_name: "test-change".to_string(),
+            change_dir: PathBuf::from("/test/openspec/changes/test-change"),
+            stories: Vec::new(),
+            scenarios: Vec::new(),
+        };
+
+        let prompt = adapter.tool_prompt();
+
+        // Check file locations are included
+        assert!(prompt.contains("proposal.md"));
+        assert!(prompt.contains("design.md"));
+        assert!(prompt.contains("tasks.md"));
+        assert!(prompt.contains("specs/"));
+    }
+
+    #[test]
+    fn tool_prompt_contains_task_marking_instructions() {
+        use std::path::PathBuf;
+
+        let adapter = OpenSpecAdapter {
+            change_name: "test-change".to_string(),
+            change_dir: PathBuf::from("/test/openspec/changes/test-change"),
+            stories: Vec::new(),
+            scenarios: Vec::new(),
+        };
+
+        let prompt = adapter.tool_prompt();
+
+        // Check task marking instructions
+        assert!(prompt.contains("- [ ]"));
+        assert!(prompt.contains("- [x]"));
+        assert!(prompt.contains("Marking Tasks Complete"));
+    }
+
+    #[test]
+    fn tool_prompt_contains_scenario_format() {
+        use std::path::PathBuf;
+
+        let adapter = OpenSpecAdapter {
+            change_name: "test-change".to_string(),
+            change_dir: PathBuf::from("/test/openspec/changes/test-change"),
+            stories: Vec::new(),
+            scenarios: Vec::new(),
+        };
+
+        let prompt = adapter.tool_prompt();
+
+        // Check scenario format explanation
+        assert!(prompt.contains("Given/When/Then"));
+        assert!(prompt.contains("GIVEN"));
+        assert!(prompt.contains("WHEN"));
+        assert!(prompt.contains("THEN"));
     }
 }

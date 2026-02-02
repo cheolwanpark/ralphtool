@@ -66,7 +66,7 @@ pub struct Scenario {
 // ============================================================================
 
 /// Verification commands for a project.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VerifyCommands {
     /// Static check commands (e.g., cargo check, cargo clippy).
     pub checks: Vec<String>,

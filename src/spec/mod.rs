@@ -9,10 +9,8 @@
 //! edits, so those operations are not part of this trait.
 
 pub mod openspec;
-mod prompt;
 mod types;
 
-pub use prompt::generate_prompt;
 pub use types::*;
 
 use crate::error::Result;
@@ -23,10 +21,10 @@ use crate::error::Result;
 /// - Reading stories and scenarios
 /// - Getting context for a story
 /// - Getting verification commands
+/// - Providing spec-tool-specific usage instructions
 ///
 /// Note: Agents mark tasks complete by directly editing tasks.md files,
 /// so no mark_done method is needed here.
-#[allow(dead_code)]
 pub trait SpecAdapter {
     /// Returns all stories with their tasks.
     fn stories(&self) -> Result<Vec<Story>>;
@@ -38,7 +36,16 @@ pub trait SpecAdapter {
     fn context(&self, story_id: &str) -> Result<Context>;
 
     /// Returns verification commands (checks and tests) for the project.
+    #[allow(dead_code)]
     fn verify_commands(&self) -> Result<VerifyCommands>;
+
+    /// Returns spec-tool-specific usage instructions for the agent.
+    ///
+    /// This provides instructions on how to use the spec tool, including:
+    /// - File locations (proposal.md, design.md, tasks.md, specs/)
+    /// - How to mark tasks complete
+    /// - Verification commands
+    fn tool_prompt(&self) -> String;
 }
 
 /// Creates a spec adapter for the given change.

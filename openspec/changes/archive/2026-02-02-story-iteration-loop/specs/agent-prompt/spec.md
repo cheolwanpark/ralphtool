@@ -1,12 +1,4 @@
-## Purpose
-
-Prompt generation for coding agents. Generates a story-specific prompt that tells the agent how to work on one story of an OpenSpec change.
-
-## Implementation
-
-Located in `src/agent/prompt.rs`. The prompt generation creates a markdown prompt from the spec adapter's context for a specific story.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Agent prompt template
 The system SHALL generate a story-specific prompt that tells the agent how to work on one story of a change.

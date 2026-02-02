@@ -1,8 +1,4 @@
-## Purpose
-
-Loop orchestration for autonomous AI development. Iterates through stories, spawning a coding agent for each incomplete story with a story-specific prompt.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Loop orchestration
 The system SHALL orchestrate autonomous AI development by iterating through stories, spawning a coding agent for each incomplete story with a story-specific prompt.
@@ -39,24 +35,3 @@ The system SHALL emit events during loop execution to enable TUI updates, includ
 - **WHEN** the TUI is displaying the loop screen
 - **THEN** it receives events via a channel and updates the display accordingly
 - **AND** shows the current story being worked on
-
-### Requirement: Loop control
-The system SHALL allow the user to stop the loop.
-
-#### Scenario: User stops loop
-- **WHEN** user presses 'q' during loop execution
-- **THEN** the system signals the agent to stop
-- **AND** preserves any completed work
-
-### Requirement: TUI loop integration
-The TUI SHALL spawn the orchestrator when the user starts the loop and display agent output.
-
-#### Scenario: Loop startup
-- **WHEN** user presses 'R' to start the loop from the preview screen
-- **THEN** the system spawns the agent with the generated prompt
-- **AND** displays the loop screen with agent output streaming
-
-#### Scenario: Stop signal propagation
-- **WHEN** user presses 'q' on the loop screen
-- **THEN** the TUI signals the agent to stop
-- **AND** transitions back to selection screen after agent exits

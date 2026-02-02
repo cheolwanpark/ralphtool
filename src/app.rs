@@ -388,6 +388,20 @@ impl App {
         // Now process the collected events
         for event in events {
             match event {
+                LoopEvent::StoryProgress {
+                    story_id,
+                    story_title,
+                    current,
+                    total,
+                } => {
+                    // Update loop state with current story info
+                    self.loop_state.current_story_id = Some(story_id.clone());
+                    self.loop_state.total_stories = total;
+                    self.add_loop_log(format!(
+                        "Starting story {}/{}: {} - {}",
+                        current, total, story_id, story_title
+                    ));
+                }
                 LoopEvent::AgentOutput { line } => {
                     // Truncate long lines for log display
                     let display_line = if line.len() > 100 {
@@ -453,6 +467,31 @@ mod tests {
     use super::*;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc;
+
+    #[test]
+    fn process_loop_events_handles_story_progress() {
+        let mut app = App::new();
+        let (tx, rx) = mpsc::channel();
+        app.loop_event_rx = Some(rx);
+
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "1".to_string(),
+            story_title: "First Story".to_string(),
+            current: 1,
+            total: 3,
+        })
+        .unwrap();
+
+        let completed = app.process_loop_events();
+
+        assert!(!completed);
+        assert_eq!(app.loop_state.current_story_id, Some("1".to_string()));
+        assert_eq!(app.loop_state.total_stories, 3);
+        assert!(app
+            .loop_log
+            .iter()
+            .any(|l| l.contains("Starting story 1/3")));
+    }
 
     #[test]
     fn process_loop_events_handles_agent_output() {

@@ -8,6 +8,9 @@
 
 #[allow(dead_code)]
 pub mod claude;
+mod prompt;
+
+pub use prompt::PromptBuilder;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -18,29 +21,28 @@ use crate::error::Result;
 ///
 /// Implementations spawn an AI agent with a prompt and configuration,
 /// then return the agent's output when complete.
-#[allow(dead_code)]
 pub trait CodingAgent {
     /// Spawn agent with prompt and configuration, return output when complete.
     fn run(&self, prompt: &str, config: &AgentConfig) -> Result<AgentOutput>;
 }
 
 /// Configuration for spawning a coding agent.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct AgentConfig {
     /// Maximum number of turns before the agent stops.
     pub max_turns: u32,
 
     /// Timeout for the agent execution.
+    #[allow(dead_code)]
     pub timeout: Duration,
 
     /// Additional environment variables to pass to the subprocess.
     pub env: HashMap<String, String>,
 }
 
-#[allow(dead_code)]
 impl AgentConfig {
     /// Create a new AgentConfig with default values.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             max_turns: 50,
@@ -50,6 +52,7 @@ impl AgentConfig {
     }
 
     /// Set additional environment variables.
+    #[allow(dead_code)]
     pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
         self.env = env;
         self
@@ -57,27 +60,29 @@ impl AgentConfig {
 }
 
 /// Output from a coding agent run.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AgentOutput {
     /// The result/response text from the agent.
     pub result: String,
 
     /// Session ID for the agent run (if available).
+    #[allow(dead_code)]
     pub session_id: String,
 
     /// Token usage statistics.
+    #[allow(dead_code)]
     pub usage: TokenUsage,
 }
 
 /// Token usage statistics from an agent run.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct TokenUsage {
     /// Number of input tokens consumed.
+    #[allow(dead_code)]
     pub input_tokens: u64,
 
     /// Number of output tokens generated.
+    #[allow(dead_code)]
     pub output_tokens: u64,
 }
 
