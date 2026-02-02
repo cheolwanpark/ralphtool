@@ -8,6 +8,7 @@ mod orchestrator;
 
 pub use orchestrator::Orchestrator;
 
+use crate::agent::StreamEvent;
 use tokio::sync::mpsc;
 
 /// Events emitted during loop execution.
@@ -20,20 +21,26 @@ pub enum LoopEvent {
         /// ID of the current story.
         story_id: String,
         /// Title of the current story.
+        #[allow(dead_code)] // Used in Story 5 UI rendering
         story_title: String,
         /// Current story number (1-indexed).
+        #[allow(dead_code)] // Used in Story 5 UI rendering
         current: usize,
         /// Total number of stories.
         total: usize,
     },
 
-    /// Agent output line (for streaming display).
-    AgentOutput {
-        line: String,
+    /// Agent event with story context (for streaming display).
+    StoryEvent {
+        /// ID of the story this event belongs to.
+        story_id: String,
+        /// The stream event from the agent.
+        event: StreamEvent,
     },
 
     /// An error occurred during loop execution.
     Error {
+        #[allow(dead_code)] // Used in Story 5 UI rendering
         message: String,
     },
 
@@ -60,6 +67,9 @@ pub struct LoopState {
 
     /// Number of completed stories.
     pub completed_stories: usize,
+
+    /// IDs of stories that have been started, in order.
+    pub started_story_ids: Vec<String>,
 }
 
 impl LoopState {
@@ -71,6 +81,7 @@ impl LoopState {
             current_story_id: None,
             total_stories: 0,
             completed_stories: 0,
+            started_story_ids: Vec::new(),
         }
     }
 }

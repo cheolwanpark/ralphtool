@@ -112,23 +112,27 @@ impl Orchestrator {
 
                             // Process streaming events
                             for event in stream {
-                                match event {
-                                    StreamEvent::Message(text) => {
-                                        // Emit intermediate message
-                                        self.emit(LoopEvent::AgentOutput { line: text }).await;
+                                match &event {
+                                    StreamEvent::Message(_) => {
+                                        // Emit intermediate message with story context
+                                        self.emit(LoopEvent::StoryEvent {
+                                            story_id: story.id.clone(),
+                                            event: event.clone(),
+                                        })
+                                        .await;
                                     }
                                     StreamEvent::Done(response) => {
                                         // Store final content for completion check
-                                        final_content = response.content;
+                                        final_content = response.content.clone();
+                                        // Emit done event with full response
+                                        self.emit(LoopEvent::StoryEvent {
+                                            story_id: story.id.clone(),
+                                            event: event.clone(),
+                                        })
+                                        .await;
                                     }
                                 }
                             }
-
-                            // Emit final output
-                            self.emit(LoopEvent::AgentOutput {
-                                line: final_content.clone(),
-                            })
-                            .await;
 
                             // Check for completion signal
                             if final_content.contains(COMPLETION_SIGNAL) {

@@ -186,7 +186,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     match app.screen {
         Screen::ChangeSelection => render_selection(frame, app),
         Screen::ConversionPreview => render_preview(frame, app),
-        Screen::LoopExecution => render_loop_screen(frame, &app.loop_state, &app.loop_log),
+        Screen::LoopExecution => render_loop_screen(frame, app),
         Screen::LoopResult => render_result_screen(frame, &app.loop_result, app.result_scroll_offset),
     }
 }

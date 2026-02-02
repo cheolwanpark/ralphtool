@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
+use crate::agent::StreamEvent;
 use crate::ralph_loop::{LoopEvent, LoopState};
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use crate::spec::SpecAdapter;
@@ -31,6 +33,17 @@ pub enum PreviewTab {
     Scenarios,
 }
 
+/// Tab selection for the loop execution screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)] // Used in Story 4 and Story 5
+pub enum LoopTab {
+    /// Shows story title and task list with checkboxes.
+    #[default]
+    Info,
+    /// Shows agent messages and responses.
+    Agent,
+}
+
 pub struct App {
     pub running: bool,
     /// Current screen being displayed.
@@ -55,8 +68,16 @@ pub struct App {
     pub scenarios_scroll_offset: usize,
     /// Loop execution state.
     pub loop_state: LoopState,
-    /// Log messages during loop execution.
-    pub loop_log: Vec<String>,
+    /// Stream events per story, keyed by story_id.
+    pub story_events: HashMap<String, Vec<StreamEvent>>,
+    /// Currently selected story index for navigation.
+    pub loop_selected_story: usize,
+    /// Active tab in the loop execution screen.
+    pub loop_tab: LoopTab,
+    /// Scroll offset for the Info tab.
+    pub loop_info_scroll: usize,
+    /// Scroll offset for the Agent tab.
+    pub loop_agent_scroll: usize,
     /// Loop result for review.
     pub loop_result: LoopResult,
     /// Scroll offset for result screen.
@@ -84,7 +105,11 @@ impl App {
             tasks_scroll_offset: 0,
             scenarios_scroll_offset: 0,
             loop_state: LoopState::new(""),
-            loop_log: Vec::new(),
+            story_events: HashMap::new(),
+            loop_selected_story: 0,
+            loop_tab: LoopTab::default(),
+            loop_info_scroll: 0,
+            loop_agent_scroll: 0,
             loop_result: LoopResult::default(),
             result_scroll_offset: 0,
             loop_event_rx: None,
@@ -106,7 +131,11 @@ impl App {
             let mut state = LoopState::new(name);
             state.running = true;
             self.loop_state = state;
-            self.loop_log.clear();
+            self.story_events.clear();
+            self.loop_selected_story = 0;
+            self.loop_tab = LoopTab::default();
+            self.loop_info_scroll = 0;
+            self.loop_agent_scroll = 0;
 
             // Create channel for events (std::sync::mpsc for TUI compatibility)
             let (tx, rx) = mpsc::channel();
@@ -159,11 +188,6 @@ impl App {
             self.loop_thread = Some(handle);
             self.screen = Screen::LoopExecution;
         }
-    }
-
-    /// Adds a log message to the loop log.
-    pub fn add_loop_log(&mut self, message: String) {
-        self.loop_log.push(message);
     }
 
     /// Transitions to the result screen with the given result.
@@ -388,33 +412,43 @@ impl App {
             match event {
                 LoopEvent::StoryProgress {
                     story_id,
-                    story_title,
-                    current,
+                    story_title: _,
+                    current: _,
                     total,
                 } => {
                     // Update loop state with current story info
                     self.loop_state.current_story_id = Some(story_id.clone());
                     self.loop_state.total_stories = total;
-                    self.add_loop_log(format!(
-                        "Starting story {}/{}: {} - {}",
-                        current, total, story_id, story_title
-                    ));
+
+                    // Track started stories and auto-select new story
+                    if !self.loop_state.started_story_ids.contains(&story_id) {
+                        self.loop_state.started_story_ids.push(story_id.clone());
+                        // Auto-select newly started story
+                        self.loop_selected_story = self.loop_state.started_story_ids.len() - 1;
+                    }
+
+                    // Initialize story_events entry if not present
+                    self.story_events.entry(story_id).or_default();
                 }
-                LoopEvent::AgentOutput { line } => {
-                    // Truncate long lines for log display
-                    let display_line = if line.len() > 100 {
-                        format!("{}...", &line[..100])
-                    } else {
-                        line
-                    };
-                    self.add_loop_log(display_line);
+                LoopEvent::StoryEvent { story_id, event } => {
+                    // Track started stories if not already tracked
+                    if !self.loop_state.started_story_ids.contains(&story_id) {
+                        self.loop_state.started_story_ids.push(story_id.clone());
+                        // Auto-select newly started story
+                        self.loop_selected_story = self.loop_state.started_story_ids.len() - 1;
+                    }
+
+                    // Store the full StreamEvent in story_events HashMap
+                    self.story_events
+                        .entry(story_id)
+                        .or_default()
+                        .push(event);
                 }
-                LoopEvent::Error { message } => {
-                    self.add_loop_log(format!("Error: {}", message));
+                LoopEvent::Error { message: _ } => {
+                    // Errors are logged but not stored in story_events
                 }
                 LoopEvent::Complete => {
                     self.loop_state.running = false;
-                    self.add_loop_log("Loop completed".to_string());
                     completed = true;
                 }
             }
@@ -434,7 +468,94 @@ impl App {
 
         if let Some(ref flag) = self.loop_stop_flag {
             flag.store(true, Ordering::Relaxed);
-            self.add_loop_log("Stop requested, waiting for agent to finish...".to_string());
+        }
+    }
+
+    /// Returns the IDs of visible stories for the indicator display (max 5).
+    /// Uses a sliding window centered on the selected story when there are more than 5 stories.
+    #[allow(dead_code)] // Used in Story 5 UI rewrite
+    pub fn visible_stories(&self) -> Vec<&str> {
+        let started = &self.loop_state.started_story_ids;
+        let count = started.len();
+
+        if count <= 5 {
+            // Show all stories if 5 or fewer
+            started.iter().map(|s| s.as_str()).collect()
+        } else {
+            // Sliding window of 5, centered on selected story
+            let selected = self.loop_selected_story;
+            let half_window = 2;
+
+            let start = if selected <= half_window {
+                0
+            } else if selected >= count - half_window - 1 {
+                count - 5
+            } else {
+                selected - half_window
+            };
+
+            started[start..start + 5]
+                .iter()
+                .map(|s| s.as_str())
+                .collect()
+        }
+    }
+
+    /// Returns the currently selected story ID, if any.
+    #[allow(dead_code)] // Used in Story 5 UI rewrite
+    pub fn current_story(&self) -> Option<&str> {
+        self.loop_state
+            .started_story_ids
+            .get(self.loop_selected_story)
+            .map(|s| s.as_str())
+    }
+
+    /// Returns true if the user can navigate to the previous story.
+    pub fn can_navigate_left(&self) -> bool {
+        self.loop_selected_story > 0
+    }
+
+    /// Returns true if the user can navigate to the next story.
+    pub fn can_navigate_right(&self) -> bool {
+        let started_count = self.loop_state.started_story_ids.len();
+        started_count > 0 && self.loop_selected_story < started_count - 1
+    }
+
+    /// Navigates to the previous story (left arrow).
+    pub fn navigate_to_previous_story(&mut self) {
+        if self.can_navigate_left() {
+            self.loop_selected_story -= 1;
+        }
+    }
+
+    /// Navigates to the next story (right arrow).
+    pub fn navigate_to_next_story(&mut self) {
+        if self.can_navigate_right() {
+            self.loop_selected_story += 1;
+        }
+    }
+
+    /// Switches between Info and Agent tabs in the loop screen.
+    pub fn switch_loop_tab(&mut self) {
+        self.loop_tab = match self.loop_tab {
+            LoopTab::Info => LoopTab::Agent,
+            LoopTab::Agent => LoopTab::Info,
+        };
+    }
+
+    /// Scrolls up in the loop execution screen (current tab).
+    pub fn loop_scroll_up(&mut self) {
+        match self.loop_tab {
+            LoopTab::Info => self.loop_info_scroll = self.loop_info_scroll.saturating_sub(1),
+            LoopTab::Agent => self.loop_agent_scroll = self.loop_agent_scroll.saturating_sub(1),
+        }
+    }
+
+    /// Scrolls down in the loop execution screen (current tab).
+    pub fn loop_scroll_down(&mut self) {
+        match self.loop_tab {
+            LoopTab::Info => self.loop_info_scroll = self.loop_info_scroll.saturating_add(1),
+            LoopTab::Agent => self.loop_agent_scroll = self.loop_agent_scroll.saturating_add(1),
         }
     }
 
@@ -457,6 +578,13 @@ impl App {
         self.loop_event_rx = None;
         self.loop_stop_flag = None;
         self.loop_state = LoopState::new("");
+
+        // Clear story navigation and tab state
+        self.story_events.clear();
+        self.loop_selected_story = 0;
+        self.loop_tab = LoopTab::default();
+        self.loop_info_scroll = 0;
+        self.loop_agent_scroll = 0;
     }
 }
 
@@ -485,27 +613,36 @@ mod tests {
         assert!(!completed);
         assert_eq!(app.loop_state.current_story_id, Some("1".to_string()));
         assert_eq!(app.loop_state.total_stories, 3);
-        assert!(app
-            .loop_log
-            .iter()
-            .any(|l| l.contains("Starting story 1/3")));
+        // Story should be tracked and auto-selected
+        assert!(app.loop_state.started_story_ids.contains(&"1".to_string()));
+        assert_eq!(app.loop_selected_story, 0);
+        // Story events entry should be initialized
+        assert!(app.story_events.contains_key("1"));
     }
 
     #[test]
-    fn process_loop_events_handles_agent_output() {
+    fn process_loop_events_handles_story_event() {
         let mut app = App::new();
         let (tx, rx) = mpsc::channel();
         app.loop_event_rx = Some(rx);
 
-        tx.send(LoopEvent::AgentOutput {
-            line: "Agent is working...".to_string(),
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "1".to_string(),
+            event: StreamEvent::Message("Agent is working...".to_string()),
         })
         .unwrap();
 
         let completed = app.process_loop_events();
 
         assert!(!completed);
-        assert!(app.loop_log.iter().any(|l| l.contains("Agent is working")));
+        assert!(app.loop_state.started_story_ids.contains(&"1".to_string()));
+        // Event should be stored in story_events
+        let events = app.story_events.get("1").expect("Story events should exist");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            StreamEvent::Message(msg) => assert_eq!(msg, "Agent is working..."),
+            _ => panic!("Expected Message event"),
+        }
     }
 
     #[test]
@@ -521,7 +658,6 @@ mod tests {
 
         assert!(completed);
         assert!(!app.loop_state.running);
-        assert!(app.loop_log.iter().any(|l| l.contains("Loop completed")));
     }
 
     #[test]
@@ -535,9 +671,10 @@ mod tests {
         })
         .unwrap();
 
-        app.process_loop_events();
+        let completed = app.process_loop_events();
 
-        assert!(app.loop_log.iter().any(|l| l.contains("Error: Test error")));
+        // Errors don't trigger completion
+        assert!(!completed);
     }
 
     #[test]
@@ -559,7 +696,6 @@ mod tests {
         app.request_loop_stop();
 
         assert!(stop_flag.load(Ordering::Relaxed));
-        assert!(app.loop_log.iter().any(|l| l.contains("Stop requested")));
     }
 
     #[test]
@@ -568,8 +704,6 @@ mod tests {
         app.loop_stop_flag = None;
 
         app.request_loop_stop(); // Should not panic
-
-        assert!(app.loop_log.is_empty());
     }
 
     #[test]
@@ -581,11 +715,26 @@ mod tests {
         app.loop_state = LoopState::new("test-change");
         app.loop_state.running = true;
 
+        // Set up story navigation state
+        app.story_events.insert("1".to_string(), vec![StreamEvent::Message("test".to_string())]);
+        app.loop_selected_story = 2;
+        app.loop_tab = LoopTab::Agent;
+        app.loop_info_scroll = 5;
+        app.loop_agent_scroll = 10;
+
         app.cleanup_loop();
 
+        // Verify original state is cleared
         assert!(app.loop_event_rx.is_none());
         assert!(app.loop_stop_flag.is_none());
         assert!(!app.loop_state.running);
+
+        // Verify new state fields are cleared
+        assert!(app.story_events.is_empty());
+        assert_eq!(app.loop_selected_story, 0);
+        assert_eq!(app.loop_tab, LoopTab::Info);
+        assert_eq!(app.loop_info_scroll, 0);
+        assert_eq!(app.loop_agent_scroll, 0);
     }
 
     #[test]
@@ -602,5 +751,420 @@ mod tests {
         let result = app.build_loop_result();
 
         assert_eq!(result.change_name, "my-change");
+    }
+
+    #[test]
+    fn visible_stories_returns_all_when_five_or_fewer() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec![
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+        ];
+
+        let visible = app.visible_stories();
+
+        assert_eq!(visible, vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn visible_stories_returns_sliding_window_when_more_than_five() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = (1..=8).map(|i| i.to_string()).collect();
+        app.loop_selected_story = 4; // Select story "5" (0-indexed)
+
+        let visible = app.visible_stories();
+
+        // Should show window centered on selection: 3, 4, 5, 6, 7
+        assert_eq!(visible.len(), 5);
+        assert_eq!(visible, vec!["3", "4", "5", "6", "7"]);
+    }
+
+    #[test]
+    fn visible_stories_window_at_start() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = (1..=8).map(|i| i.to_string()).collect();
+        app.loop_selected_story = 0; // Select first story
+
+        let visible = app.visible_stories();
+
+        // Should show first 5
+        assert_eq!(visible, vec!["1", "2", "3", "4", "5"]);
+    }
+
+    #[test]
+    fn visible_stories_window_at_end() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = (1..=8).map(|i| i.to_string()).collect();
+        app.loop_selected_story = 7; // Select last story
+
+        let visible = app.visible_stories();
+
+        // Should show last 5
+        assert_eq!(visible, vec!["4", "5", "6", "7", "8"]);
+    }
+
+    #[test]
+    fn current_story_returns_selected() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ];
+        app.loop_selected_story = 1;
+
+        assert_eq!(app.current_story(), Some("b"));
+    }
+
+    #[test]
+    fn current_story_returns_none_when_empty() {
+        let app = App::new();
+
+        assert_eq!(app.current_story(), None);
+    }
+
+    #[test]
+    fn can_navigate_left_when_not_first() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string()];
+        app.loop_selected_story = 1;
+
+        assert!(app.can_navigate_left());
+    }
+
+    #[test]
+    fn cannot_navigate_left_when_first() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string()];
+        app.loop_selected_story = 0;
+
+        assert!(!app.can_navigate_left());
+    }
+
+    #[test]
+    fn can_navigate_right_when_not_last() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string()];
+        app.loop_selected_story = 0;
+
+        assert!(app.can_navigate_right());
+    }
+
+    #[test]
+    fn cannot_navigate_right_when_last() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string()];
+        app.loop_selected_story = 1;
+
+        assert!(!app.can_navigate_right());
+    }
+
+    #[test]
+    fn cannot_navigate_when_empty() {
+        let app = App::new();
+
+        assert!(!app.can_navigate_left());
+        assert!(!app.can_navigate_right());
+    }
+
+    #[test]
+    fn auto_selects_new_story_on_progress() {
+        let mut app = App::new();
+        let (tx, rx) = mpsc::channel();
+        app.loop_event_rx = Some(rx);
+
+        // Send first story progress
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "1".to_string(),
+            story_title: "First".to_string(),
+            current: 1,
+            total: 3,
+        })
+        .unwrap();
+        app.process_loop_events();
+        assert_eq!(app.loop_selected_story, 0);
+
+        // Send second story progress
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "2".to_string(),
+            story_title: "Second".to_string(),
+            current: 2,
+            total: 3,
+        })
+        .unwrap();
+        app.process_loop_events();
+        assert_eq!(app.loop_selected_story, 1);
+    }
+
+    #[test]
+    fn navigate_to_previous_story_decrements_selected() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+        app.loop_selected_story = 2;
+
+        app.navigate_to_previous_story();
+
+        assert_eq!(app.loop_selected_story, 1);
+    }
+
+    #[test]
+    fn navigate_to_previous_story_stops_at_first() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string()];
+        app.loop_selected_story = 0;
+
+        app.navigate_to_previous_story();
+
+        assert_eq!(app.loop_selected_story, 0);
+    }
+
+    #[test]
+    fn navigate_to_next_story_increments_selected() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+        app.loop_selected_story = 0;
+
+        app.navigate_to_next_story();
+
+        assert_eq!(app.loop_selected_story, 1);
+    }
+
+    #[test]
+    fn navigate_to_next_story_stops_at_last_started() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string()];
+        app.loop_selected_story = 1;
+
+        app.navigate_to_next_story();
+
+        // Should not advance beyond last started story
+        assert_eq!(app.loop_selected_story, 1);
+    }
+
+    #[test]
+    fn navigate_does_not_select_unstarted_stories() {
+        let mut app = App::new();
+        // Only 2 stories have started, but there might be more in total
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string()];
+        app.loop_state.total_stories = 5;
+        app.loop_selected_story = 1; // At last started story
+
+        // Try to navigate right - should be blocked
+        app.navigate_to_next_story();
+        assert_eq!(app.loop_selected_story, 1);
+
+        // Navigate left should work
+        app.navigate_to_previous_story();
+        assert_eq!(app.loop_selected_story, 0);
+
+        // At first story, left should be blocked
+        app.navigate_to_previous_story();
+        assert_eq!(app.loop_selected_story, 0);
+    }
+
+    #[test]
+    fn switch_loop_tab_toggles_between_info_and_agent() {
+        let mut app = App::new();
+        assert_eq!(app.loop_tab, LoopTab::Info);
+
+        app.switch_loop_tab();
+        assert_eq!(app.loop_tab, LoopTab::Agent);
+
+        app.switch_loop_tab();
+        assert_eq!(app.loop_tab, LoopTab::Info);
+    }
+
+    #[test]
+    fn loop_scroll_respects_current_tab() {
+        let mut app = App::new();
+
+        // Default is Info tab
+        app.loop_scroll_down();
+        app.loop_scroll_down();
+        assert_eq!(app.loop_info_scroll, 2);
+        assert_eq!(app.loop_agent_scroll, 0);
+
+        // Switch to Agent tab
+        app.switch_loop_tab();
+        app.loop_scroll_down();
+        assert_eq!(app.loop_info_scroll, 2);
+        assert_eq!(app.loop_agent_scroll, 1);
+
+        // Scroll up
+        app.loop_scroll_up();
+        assert_eq!(app.loop_agent_scroll, 0);
+    }
+
+    #[test]
+    fn auto_selects_new_story_on_story_event() {
+        let mut app = App::new();
+        let (tx, rx) = mpsc::channel();
+        app.loop_event_rx = Some(rx);
+
+        // Send first story event (without prior StoryProgress)
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "1".to_string(),
+            event: StreamEvent::Message("Working on story 1...".to_string()),
+        })
+        .unwrap();
+        app.process_loop_events();
+        assert_eq!(app.loop_selected_story, 0);
+        assert_eq!(app.loop_state.started_story_ids.len(), 1);
+
+        // Send second story event for a new story
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "2".to_string(),
+            event: StreamEvent::Message("Working on story 2...".to_string()),
+        })
+        .unwrap();
+        app.process_loop_events();
+
+        // Should auto-select the new story
+        assert_eq!(app.loop_selected_story, 1);
+        assert_eq!(app.loop_state.started_story_ids.len(), 2);
+    }
+
+    #[test]
+    fn does_not_change_selection_for_existing_story() {
+        let mut app = App::new();
+        let (tx, rx) = mpsc::channel();
+        app.loop_event_rx = Some(rx);
+
+        // Set up two stories
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "1".to_string(),
+            story_title: "First".to_string(),
+            current: 1,
+            total: 3,
+        })
+        .unwrap();
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "2".to_string(),
+            story_title: "Second".to_string(),
+            current: 2,
+            total: 3,
+        })
+        .unwrap();
+        app.process_loop_events();
+        assert_eq!(app.loop_selected_story, 1); // Auto-selected second story
+
+        // User navigates back to first story
+        app.navigate_to_previous_story();
+        assert_eq!(app.loop_selected_story, 0);
+
+        // Another event comes in for story 2 (existing story)
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "2".to_string(),
+            event: StreamEvent::Message("More work on story 2...".to_string()),
+        })
+        .unwrap();
+        app.process_loop_events();
+
+        // Selection should stay on story 1 (user's choice)
+        assert_eq!(app.loop_selected_story, 0);
+    }
+
+    #[test]
+    fn navigate_between_completed_stories_while_agent_works() {
+        use crate::agent::Response;
+
+        let mut app = App::new();
+        let (tx, rx) = mpsc::channel();
+        app.loop_event_rx = Some(rx);
+        app.loop_state.running = true;
+
+        // Story 1: Completed
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "1".to_string(),
+            story_title: "First Story".to_string(),
+            current: 1,
+            total: 3,
+        })
+        .unwrap();
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "1".to_string(),
+            event: StreamEvent::Message("Working on story 1...".to_string()),
+        })
+        .unwrap();
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "1".to_string(),
+            event: StreamEvent::Done(Response {
+                content: "Story 1 complete".to_string(),
+                turns: 5,
+                tokens: 1000,
+                cost: 0.01,
+            }),
+        })
+        .unwrap();
+
+        // Story 2: Completed
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "2".to_string(),
+            story_title: "Second Story".to_string(),
+            current: 2,
+            total: 3,
+        })
+        .unwrap();
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "2".to_string(),
+            event: StreamEvent::Done(Response {
+                content: "Story 2 complete".to_string(),
+                turns: 3,
+                tokens: 800,
+                cost: 0.008,
+            }),
+        })
+        .unwrap();
+
+        // Story 3: In progress (agent currently working)
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "3".to_string(),
+            story_title: "Third Story".to_string(),
+            current: 3,
+            total: 3,
+        })
+        .unwrap();
+        tx.send(LoopEvent::StoryEvent {
+            story_id: "3".to_string(),
+            event: StreamEvent::Message("Agent working on story 3...".to_string()),
+        })
+        .unwrap();
+
+        app.process_loop_events();
+
+        // Verify initial state: auto-selected to current (story 3)
+        assert_eq!(app.loop_selected_story, 2);
+        assert_eq!(app.loop_state.started_story_ids.len(), 3);
+        assert_eq!(app.loop_state.current_story_id, Some("3".to_string()));
+
+        // User navigates back to completed story 1
+        app.navigate_to_previous_story();
+        app.navigate_to_previous_story();
+        assert_eq!(app.loop_selected_story, 0);
+        assert_eq!(app.current_story(), Some("1"));
+
+        // Verify story 1 events are accessible
+        let story1_events = app.story_events.get("1").unwrap();
+        assert_eq!(story1_events.len(), 2); // Message + Done
+
+        // Navigate to completed story 2
+        app.navigate_to_next_story();
+        assert_eq!(app.loop_selected_story, 1);
+        assert_eq!(app.current_story(), Some("2"));
+
+        // Verify story 2 events are accessible
+        let story2_events = app.story_events.get("2").unwrap();
+        assert_eq!(story2_events.len(), 1); // Done only
+
+        // Navigate to in-progress story 3
+        app.navigate_to_next_story();
+        assert_eq!(app.loop_selected_story, 2);
+        assert_eq!(app.current_story(), Some("3"));
+
+        // Cannot navigate beyond the current story
+        assert!(!app.can_navigate_right());
+        app.navigate_to_next_story();
+        assert_eq!(app.loop_selected_story, 2); // Still on story 3
     }
 }

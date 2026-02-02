@@ -1,28 +1,4 @@
-## Purpose
-
-Loop orchestration for autonomous AI development. Iterates through stories, spawning a coding agent for each incomplete story with a story-specific prompt.
-
-## Requirements
-
-### Requirement: Loop orchestration
-The system SHALL orchestrate autonomous AI development by iterating through stories, spawning a coding agent for each incomplete story with a story-specific prompt.
-
-#### Scenario: Start loop for a change
-- **WHEN** user starts the Ralph loop for a change
-- **THEN** the system gets the list of stories from the adapter
-- **AND** identifies the first incomplete story
-- **AND** generates a story-specific prompt
-- **AND** spawns a coding agent for that story
-
-#### Scenario: Story iteration
-- **WHEN** an agent completes a story (outputs `<promise>COMPLETE</promise>`)
-- **THEN** the system refreshes the story list
-- **AND** spawns an agent for the next incomplete story
-- **AND** continues until all stories are complete
-
-#### Scenario: Loop completion
-- **WHEN** all stories are complete
-- **THEN** the system emits a Complete event
+## MODIFIED Requirements
 
 ### Requirement: Loop events
 The system SHALL emit events during loop execution to enable TUI updates, including story progress information and full agent output with story association.
@@ -50,14 +26,6 @@ The system SHALL emit events during loop execution to enable TUI updates, includ
 - **THEN** it receives events via a channel and updates the display accordingly
 - **AND** stores messages per-story for navigation
 - **AND** shows the current story being worked on
-
-### Requirement: Loop control
-The system SHALL allow the user to stop the loop.
-
-#### Scenario: User stops loop
-- **WHEN** user presses 'q' during loop execution
-- **THEN** the system signals the agent to stop
-- **AND** preserves any completed work
 
 ### Requirement: TUI loop integration
 The TUI SHALL spawn the orchestrator when the user starts the loop and display agent output with story-based navigation.
