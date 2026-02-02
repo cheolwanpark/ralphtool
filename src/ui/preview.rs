@@ -6,50 +6,54 @@ use ratatui::{
 };
 
 use crate::app::{App, PreviewTab};
-use super::{render_header, HeaderContext};
+use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
 
-/// Keybindings for the preview screen.
-const PREVIEW_KEYBINDINGS: [&str; 5] = [
-    "↑↓ Scroll",
-    "Tab Switch",
-    "R Run",
-    "Esc Back",
-    "q Quit",
-];
+/// Keybindings for the preview screen (single string for new header format).
+const PREVIEW_KEYBINDINGS: &str = "↑↓ Scroll  Tab Switch  R Run  Esc Back  q Quit";
 
 pub fn render_preview(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Create main layout with header, tab bar, and content
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(5), // Header (3 content + 2 borders)
-            Constraint::Length(1), // Tab bar
-            Constraint::Min(10),   // Content
-        ])
-        .split(area);
+    // Center the content within max width (no max height constraint)
+    let centered = centered_rect(area, MAX_WIDTH, area.height);
 
-    // Header with change name and counts as context
+    // Build description with change name and counts as context
     let change_name = app.selected_change_name.as_deref().unwrap_or("Unknown");
     let task_count: usize = app.stories.iter().flat_map(|s| &s.tasks).count();
     let story_count = app.stories.len();
     let scenario_count = app.scenarios.len();
 
-    let context_info = format!(
+    let description = format!(
         "{}: {} tasks, {} stories, {} scenarios",
         change_name, task_count, story_count, scenario_count
     );
 
-    let header_ctx = HeaderContext {
-        title: "Preview",
-        context: Some(&context_info),
-        keybindings: &PREVIEW_KEYBINDINGS,
+    // Header section data
+    let header = HeaderSection {
+        title: "◆ Preview",
+        description: &description,
+        keybindings: PREVIEW_KEYBINDINGS,
     };
-    render_header(frame, chunks[0], &header_ctx);
+
+    // Render header (auto-selects full or compact based on terminal height)
+    let header_height = render_header_auto(frame, centered, &header);
+
+    // Calculate content area (remaining space after header)
+    let content_y = centered.y + header_height;
+    let content_height = centered.height.saturating_sub(header_height);
+    let content_area = Rect::new(centered.x, content_y, centered.width, content_height);
+
+    // Split content area into tab bar and main content
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // Tab bar
+            Constraint::Min(1),    // Content
+        ])
+        .split(content_area);
 
     // Render tab bar
-    render_tab_bar(frame, app, chunks[1]);
+    render_tab_bar(frame, app, chunks[0]);
 
     // Render content based on active tab
     let lines = match app.active_tab {
@@ -66,7 +70,7 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
     let content = Paragraph::new(visible_lines)
         .block(Block::default().borders(Borders::ALL))
         .wrap(Wrap { trim: false });
-    frame.render_widget(content, chunks[2]);
+    frame.render_widget(content, chunks[1]);
 }
 
 fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {

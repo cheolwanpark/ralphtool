@@ -12,43 +12,51 @@ use ratatui::{
 };
 
 use crate::ralph_loop::LoopState;
-use super::{render_header as render_shared_header, HeaderContext};
+use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
 
-/// Keybindings for the loop execution screen.
-const LOOP_KEYBINDINGS: [&str; 1] = [
-    "q Stop",
-];
+/// Keybindings for the loop execution screen (single string for new header format).
+const LOOP_KEYBINDINGS: &str = "q Stop";
 
 /// Renders the loop execution screen.
 pub fn render_loop_screen(frame: &mut Frame, state: &LoopState, log: &[String]) {
     let area = frame.area();
 
-    // Split into header, status, and log sections
+    // Center the content within max width (no max height constraint)
+    let centered = centered_rect(area, MAX_WIDTH, area.height);
+
+    // Build description with change name and running status
+    let status_text = if state.running { "Running" } else { "Stopped" };
+    let description = format!("{} [{}]", state.change_name, status_text);
+
+    // Header section data
+    let header = HeaderSection {
+        title: "◆ Loop Execution",
+        description: &description,
+        keybindings: LOOP_KEYBINDINGS,
+    };
+
+    // Render header (auto-selects full or compact based on terminal height)
+    let header_height = render_header_auto(frame, centered, &header);
+
+    // Calculate content area (remaining space after header)
+    let content_y = centered.y + header_height;
+    let content_height = centered.height.saturating_sub(header_height);
+    let content_area = Rect::new(centered.x, content_y, centered.width, content_height);
+
+    // Split content area into status and log sections
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5), // Header (3 content + 2 borders)
             Constraint::Length(3), // Status
             Constraint::Min(10),   // Log
         ])
-        .split(area);
-
-    // Header using shared component
-    let status = if state.running { "Running" } else { "Stopped" };
-    let context_info = format!("{} [{}]", state.change_name, status);
-
-    let header_ctx = HeaderContext {
-        title: "Loop Execution",
-        context: Some(&context_info),
-        keybindings: &LOOP_KEYBINDINGS,
-    };
-    render_shared_header(frame, chunks[0], &header_ctx);
+        .split(content_area);
 
     // Status
-    render_status(frame, chunks[1], state);
+    render_status(frame, chunks[0], state);
 
     // Log
-    render_log(frame, chunks[2], log);
+    render_log(frame, chunks[1], log);
 }
 
 fn render_status(frame: &mut Frame, area: Rect, state: &LoopState) {

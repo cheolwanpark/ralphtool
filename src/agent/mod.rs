@@ -25,6 +25,7 @@ pub struct Prompt {
 
 /// Response from a coding agent run with execution metadata.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct Response {
     /// The result/response text from the agent.
     pub content: String,

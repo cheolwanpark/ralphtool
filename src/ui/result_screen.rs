@@ -10,14 +10,10 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-use super::{render_header as render_shared_header, HeaderContext};
+use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
 
-/// Keybindings for the result screen.
-const RESULT_KEYBINDINGS: [&str; 3] = [
-    "↑↓ Scroll",
-    "Esc Back",
-    "q Quit",
-];
+/// Keybindings for the result screen (single string for new header format).
+const RESULT_KEYBINDINGS: &str = "↑↓ Scroll  Esc Back  q Quit";
 
 /// Result data for display.
 #[derive(Debug, Clone, Default)]
@@ -57,34 +53,45 @@ pub struct VerificationResult {
 pub fn render_result_screen(frame: &mut Frame, result: &LoopResult, scroll_offset: usize) {
     let area = frame.area();
 
-    // Split into header, summary, files, and verification sections
+    // Center the content within max width (no max height constraint)
+    let centered = centered_rect(area, MAX_WIDTH, area.height);
+
+    // Build description with change name and completion status
+    let description = format!("Loop Complete: {}", result.change_name);
+
+    // Header section data
+    let header = HeaderSection {
+        title: "◆ Result",
+        description: &description,
+        keybindings: RESULT_KEYBINDINGS,
+    };
+
+    // Render header (auto-selects full or compact based on terminal height)
+    let header_height = render_header_auto(frame, centered, &header);
+
+    // Calculate content area (remaining space after header)
+    let content_y = centered.y + header_height;
+    let content_height = centered.height.saturating_sub(header_height);
+    let content_area = Rect::new(centered.x, content_y, centered.width, content_height);
+
+    // Split content area into summary, files, and verification sections
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5), // Header (3 content + 2 borders)
             Constraint::Length(5), // Summary
             Constraint::Min(5),    // Changed files
             Constraint::Length(6), // Verification
         ])
-        .split(area);
-
-    // Header using shared component
-    let context_info = format!("Loop Complete: {}", result.change_name);
-    let header_ctx = HeaderContext {
-        title: "Result",
-        context: Some(&context_info),
-        keybindings: &RESULT_KEYBINDINGS,
-    };
-    render_shared_header(frame, chunks[0], &header_ctx);
+        .split(content_area);
 
     // Summary
-    render_summary(frame, chunks[1], result);
+    render_summary(frame, chunks[0], result);
 
     // Changed files
-    render_changed_files(frame, chunks[2], result, scroll_offset);
+    render_changed_files(frame, chunks[1], result, scroll_offset);
 
     // Verification status
-    render_verification(frame, chunks[3], result);
+    render_verification(frame, chunks[2], result);
 }
 
 fn render_summary(frame: &mut Frame, area: Rect, result: &LoopResult) {

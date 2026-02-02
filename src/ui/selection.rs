@@ -6,34 +6,32 @@ use ratatui::{
 };
 
 use crate::app::App;
-use super::{render_header, HeaderContext};
+use super::{centered_rect, render_header_auto, HeaderSection, MAX_WIDTH};
 
-/// Keybindings for the selection screen.
-const SELECTION_KEYBINDINGS: [&str; 3] = [
-    "↑↓ Navigate",
-    "Enter Select",
-    "q Quit",
-];
+/// Keybindings for the selection screen (single string for new header format).
+const SELECTION_KEYBINDINGS: &str = "↑↓ Navigate  Enter Select  q Quit";
 
 pub fn render_selection(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Create main layout with header and list
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(5), // Header (5 lines including borders)
-            Constraint::Min(5),    // List
-        ])
-        .split(area);
+    // Center the content within max width (no max height constraint)
+    let centered = centered_rect(area, MAX_WIDTH, area.height);
 
-    // Header
-    let header_ctx = HeaderContext {
-        title: "Selection",
-        context: Some("Select a Completed Change"),
-        keybindings: &SELECTION_KEYBINDINGS,
+    // Header section data
+    let header = HeaderSection {
+        title: "◆ Change Selection",
+        description: "Select a change to preview and run",
+        keybindings: SELECTION_KEYBINDINGS,
     };
-    render_header(frame, chunks[0], &header_ctx);
+
+    // Render header (auto-selects full or compact based on terminal height)
+    let header_height = render_header_auto(frame, centered, &header);
+
+    // Calculate content area (remaining space after header)
+    // Using percentage-based approach: header ~20%, content ~80%
+    let content_y = centered.y + header_height;
+    let content_height = centered.height.saturating_sub(header_height);
+    let content_area = Rect::new(centered.x, content_y, centered.width, content_height);
 
     // Change list or empty state
     if app.available_changes.is_empty() {
@@ -41,7 +39,7 @@ pub fn render_selection(frame: &mut Frame, app: &App) {
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL).title(" Changes "));
-        frame.render_widget(empty, chunks[1]);
+        frame.render_widget(empty, content_area);
     } else {
         let items: Vec<ListItem> = app
             .available_changes
@@ -70,6 +68,6 @@ pub fn render_selection(frame: &mut Frame, app: &App) {
         let list = List::new(items)
             .block(Block::default().borders(Borders::ALL).title(" Changes "))
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
-        frame.render_widget(list, chunks[1]);
+        frame.render_widget(list, content_area);
     }
 }
