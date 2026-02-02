@@ -481,10 +481,12 @@ impl App {
                     story_title: _,
                     current: _,
                     total,
+                    completed,
                 } => {
                     // Update loop state with current story info
                     self.loop_state.current_story_id = Some(story_id.clone());
                     self.loop_state.total_stories = total;
+                    self.loop_state.completed_stories = completed;
 
                     // Track started stories and auto-select new story
                     if !self.loop_state.started_story_ids.contains(&story_id) {
@@ -671,6 +673,7 @@ mod tests {
             story_title: "First Story".to_string(),
             current: 1,
             total: 3,
+            completed: 0,
         })
         .unwrap();
 
@@ -946,6 +949,7 @@ mod tests {
             story_title: "First".to_string(),
             current: 1,
             total: 3,
+            completed: 0,
         })
         .unwrap();
         app.process_loop_events();
@@ -957,6 +961,7 @@ mod tests {
             story_title: "Second".to_string(),
             current: 2,
             total: 3,
+            completed: 1,
         })
         .unwrap();
         app.process_loop_events();
@@ -1103,6 +1108,7 @@ mod tests {
             story_title: "First".to_string(),
             current: 1,
             total: 3,
+            completed: 0,
         })
         .unwrap();
         tx.send(LoopEvent::StoryProgress {
@@ -1110,6 +1116,7 @@ mod tests {
             story_title: "Second".to_string(),
             current: 2,
             total: 3,
+            completed: 1,
         })
         .unwrap();
         app.process_loop_events();
@@ -1146,6 +1153,7 @@ mod tests {
             story_title: "First Story".to_string(),
             current: 1,
             total: 3,
+            completed: 0,
         })
         .unwrap();
         tx.send(LoopEvent::StoryEvent {
@@ -1170,6 +1178,7 @@ mod tests {
             story_title: "Second Story".to_string(),
             current: 2,
             total: 3,
+            completed: 1,
         })
         .unwrap();
         tx.send(LoopEvent::StoryEvent {
@@ -1189,6 +1198,7 @@ mod tests {
             story_title: "Third Story".to_string(),
             current: 3,
             total: 3,
+            completed: 2,
         })
         .unwrap();
         tx.send(LoopEvent::StoryEvent {

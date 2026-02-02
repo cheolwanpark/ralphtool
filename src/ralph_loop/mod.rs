@@ -28,6 +28,9 @@ pub enum LoopEvent {
         current: usize,
         /// Total number of stories.
         total: usize,
+        /// Number of completed stories.
+        #[allow(dead_code)] // Used in Story 3 app event handler
+        completed: usize,
     },
 
     /// Agent event with story context (for streaming display).

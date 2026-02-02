@@ -98,6 +98,7 @@ impl Orchestrator {
                         story_title: story.title.clone(),
                         current: story_position,
                         total: stories.len(),
+                        completed: state.completed_stories,
                     })
                     .await;
 
