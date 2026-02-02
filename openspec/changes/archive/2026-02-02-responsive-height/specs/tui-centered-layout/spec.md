@@ -1,8 +1,4 @@
-## Purpose
-
-Provides a centered container layout for the TUI that uses responsive width and height calculations to center content both horizontally and vertically within the terminal. This improves readability on wide and tall terminals and creates consistent visual presentation across all screens.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Centered container with max-width constraint
 The TUI SHALL render all content within a centered container using responsive width and height calculations. The width SHALL be 85% of terminal width, clamped between 60 and 140 columns. The height SHALL be 90% of terminal height, clamped between 20 and 50 rows. The container SHALL be centered both horizontally and vertically within the terminal.
@@ -34,22 +30,3 @@ The TUI SHALL render all content within a centered container using responsive wi
 #### Scenario: Short terminal minimum height
 - **WHEN** the terminal height is 24 rows
 - **THEN** the content container is 21 rows tall (90% of 24, within bounds), centered with 1-2 rows of padding on top and bottom
-
-### Requirement: Centering applies to all screens
-The centered container layout SHALL be applied consistently to all TUI screens: Change Selection, Preview, Loop Execution, and Result.
-
-#### Scenario: Selection screen is centered
-- **WHEN** the Selection screen is rendered on a 150x50 terminal
-- **THEN** the content is displayed within a centered responsive-width container
-
-#### Scenario: Preview screen is centered
-- **WHEN** the Preview screen is rendered on a 150x50 terminal
-- **THEN** the content is displayed within a centered responsive-width container
-
-#### Scenario: Loop screen is centered
-- **WHEN** the Loop Execution screen is rendered on a 150x50 terminal
-- **THEN** the content is displayed within a centered responsive-width container
-
-#### Scenario: Result screen is centered
-- **WHEN** the Result screen is rendered on a 150x50 terminal
-- **THEN** the content is displayed within a centered responsive-width container
