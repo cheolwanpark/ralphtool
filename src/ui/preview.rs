@@ -61,15 +61,12 @@ pub fn render_preview(frame: &mut Frame, app: &App) {
         PreviewTab::Scenarios => render_scenarios_tab(app),
     };
 
-    // Apply scroll offset
-    let visible_lines: Vec<Line> = lines
-        .into_iter()
-        .skip(app.get_scroll_offset())
-        .collect();
-
-    let content = Paragraph::new(visible_lines)
+    // Create paragraph with native scroll
+    let scroll_offset = app.get_scroll_offset() as u16;
+    let content = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((scroll_offset, 0));
     frame.render_widget(content, chunks[1]);
 }
 

@@ -6,7 +6,7 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use super::{centered_rect, render_header_auto, HeaderSection};
@@ -136,46 +136,39 @@ fn render_tabs(frame: &mut Frame, area: Rect, active_tab: ResultTab) {
 
 /// Renders the Tasks tab showing stories with task checkboxes.
 fn render_tasks_tab(frame: &mut Frame, area: Rect, result: &LoopResult, scroll_offset: usize) {
-    let visible_height = (area.height as usize).saturating_sub(2); // Account for borders
-
-    // Build list items from stories and their tasks
-    let mut items: Vec<ListItem> = Vec::new();
+    // Build lines from stories and their tasks
+    let mut lines: Vec<Line> = Vec::new();
     for story in &result.stories {
         // Story title line
-        items.push(ListItem::new(format!("## {}", story.title)).style(Style::default().bold()));
+        lines.push(Line::from(Span::styled(
+            format!("## {}", story.title),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
 
         // Task lines with checkboxes
         for task in &story.tasks {
             let checkbox = if task.done { "[x]" } else { "[ ]" };
-            items.push(ListItem::new(format!("  {} {}", checkbox, task.description)));
+            lines.push(Line::from(format!("  {} {}", checkbox, task.description)));
         }
 
         // Empty line after each story
-        items.push(ListItem::new(""));
+        lines.push(Line::from(""));
     }
 
-    // Apply scrolling
-    let visible_items: Vec<ListItem> = items
-        .into_iter()
-        .skip(scroll_offset)
-        .take(visible_height)
-        .collect();
+    // Create paragraph with native scroll
+    let content = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL))
+        .scroll((scroll_offset as u16, 0));
 
-    let tasks_list = List::new(visible_items)
-        .block(Block::default().borders(Borders::ALL));
-
-    frame.render_widget(tasks_list, area);
+    frame.render_widget(content, area);
 }
 
 /// Renders the Changed Files tab with color-coded file status.
 fn render_changed_files(frame: &mut Frame, area: Rect, result: &LoopResult, scroll_offset: usize) {
-    let visible_height = (area.height as usize).saturating_sub(2); // Account for borders
-
-    let items: Vec<ListItem> = result
+    // Build lines with color-coded file status
+    let lines: Vec<Line> = result
         .changed_files
         .iter()
-        .skip(scroll_offset)
-        .take(visible_height)
         .map(|file| {
             let style = if file.starts_with('A') {
                 Style::default().fg(Color::Green)
@@ -186,13 +179,16 @@ fn render_changed_files(frame: &mut Frame, area: Rect, result: &LoopResult, scro
             } else {
                 Style::default()
             };
-            ListItem::new(file.as_str()).style(style)
+            Line::from(Span::styled(file.as_str(), style))
         })
         .collect();
 
     let title = format!(" Changed Files ({}) ", result.changed_files.len());
-    let files_list = List::new(items)
-        .block(Block::default().title(title).borders(Borders::ALL));
 
-    frame.render_widget(files_list, area);
+    // Create paragraph with native scroll
+    let content = Paragraph::new(lines)
+        .block(Block::default().title(title).borders(Borders::ALL))
+        .scroll((scroll_offset as u16, 0));
+
+    frame.render_widget(content, area);
 }

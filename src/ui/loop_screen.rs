@@ -21,7 +21,7 @@ use super::{centered_rect, render_header_auto, HeaderSection};
 const LOOP_KEYBINDINGS: &str = "←→ Story  Tab Switch  ↑↓ Scroll  q Stop";
 
 /// Renders the loop execution screen.
-pub fn render_loop_screen(frame: &mut Frame, app: &App) {
+pub fn render_loop_screen(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
     // Center the content using responsive width
@@ -292,15 +292,12 @@ fn render_info_tab(frame: &mut Frame, area: Rect, app: &App) {
         )));
     }
 
-    // Apply scroll offset
-    let visible_lines: Vec<Line> = lines
-        .into_iter()
-        .skip(app.loop_info_scroll)
-        .collect();
-
-    let content = Paragraph::new(visible_lines)
+    // Create paragraph with native scroll
+    let scroll_offset = app.loop_info_scroll as u16;
+    let content = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((scroll_offset, 0));
     frame.render_widget(content, area);
 }
 
@@ -310,7 +307,7 @@ fn render_info_tab(frame: &mut Frame, area: Rect, app: &App) {
 /// - "Assistant:" prefix for regular messages
 /// - "Done:" prefix with usage stats in different color for completion
 /// - Visual spacing between messages
-fn render_agent_tab(frame: &mut Frame, area: Rect, app: &App) {
+fn render_agent_tab(frame: &mut Frame, area: Rect, app: &mut App) {
     let mut lines: Vec<Line> = Vec::new();
 
     // Get selected story ID
@@ -344,25 +341,30 @@ fn render_agent_tab(frame: &mut Frame, area: Rect, app: &App) {
         )));
     }
 
-    // Calculate total content height for scroll snap
-    let total_height = lines.len();
-    let visible_height = area.height.saturating_sub(2) as usize; // Account for borders
-
-    // Apply scroll offset with snap logic
-    let scroll_offset = calculate_scroll_offset(
-        app.loop_agent_scroll,
-        total_height,
-        visible_height,
-    );
-
-    let visible_lines: Vec<Line> = lines
-        .into_iter()
-        .skip(scroll_offset)
-        .collect();
-
-    let content = Paragraph::new(visible_lines)
-        .block(Block::default().borders(Borders::ALL))
+    // Create paragraph to calculate actual rendered line count
+    let block = Block::default().borders(Borders::ALL);
+    let inner_area = block.inner(area);
+    let paragraph = Paragraph::new(lines)
+        .block(block)
         .wrap(Wrap { trim: false });
+
+    // Get actual rendered line count (accounting for wrap)
+    let total_lines = paragraph.line_count(inner_area.width);
+    let visible_height = inner_area.height as usize;
+    let max_scroll = total_lines.saturating_sub(visible_height);
+
+    // Update max_scroll for auto-scroll detection in loop_scroll_down()
+    app.loop_agent_max_scroll = max_scroll;
+
+    // Calculate scroll offset: auto-scroll snaps to bottom, otherwise use user position
+    let scroll_offset = if app.loop_agent_auto_scroll {
+        max_scroll
+    } else {
+        app.loop_agent_scroll.min(max_scroll)
+    };
+
+    // Apply native scroll
+    let content = paragraph.scroll((scroll_offset as u16, 0));
     frame.render_widget(content, area);
 }
 
@@ -459,90 +461,3 @@ fn render_done_section<'a>(lines: &mut Vec<Line<'a>>, response: &Response) {
     ]));
 }
 
-/// Calculates the scroll offset with snap-to-bottom behavior.
-///
-/// Scroll snap logic:
-/// - When at or near bottom, keep scrolled to show newest content
-/// - When user scrolls up, respect their position
-/// - Returns the actual scroll offset to use
-fn calculate_scroll_offset(
-    user_scroll: usize,
-    total_height: usize,
-    visible_height: usize,
-) -> usize {
-    if total_height <= visible_height {
-        // Content fits, no scrolling needed
-        return 0;
-    }
-
-    let max_scroll = total_height.saturating_sub(visible_height);
-
-    // If user scroll is at or beyond max, snap to bottom
-    if user_scroll >= max_scroll {
-        max_scroll
-    } else {
-        // Respect user's scroll position
-        user_scroll.min(max_scroll)
-    }
-}
-
-/// Checks if the current scroll position is at the bottom (for auto-scroll).
-///
-/// Returns true if scrolled to bottom, meaning auto-scroll should be active.
-#[allow(dead_code)]
-pub fn is_at_bottom(scroll_offset: usize, total_height: usize, visible_height: usize) -> bool {
-    if total_height <= visible_height {
-        true
-    } else {
-        let max_scroll = total_height.saturating_sub(visible_height);
-        scroll_offset >= max_scroll
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_calculate_scroll_offset_content_fits() {
-        // Content fits in view, no scroll needed
-        assert_eq!(calculate_scroll_offset(0, 10, 20), 0);
-        assert_eq!(calculate_scroll_offset(5, 10, 20), 0);
-    }
-
-    #[test]
-    fn test_calculate_scroll_offset_snap_to_bottom() {
-        // User at max scroll, snap to bottom
-        let total = 30;
-        let visible = 10;
-        let max_scroll = 20;
-
-        assert_eq!(calculate_scroll_offset(max_scroll, total, visible), max_scroll);
-        assert_eq!(calculate_scroll_offset(max_scroll + 5, total, visible), max_scroll);
-    }
-
-    #[test]
-    fn test_calculate_scroll_offset_respects_user_position() {
-        // User scrolled up, respect their position
-        let total = 30;
-        let visible = 10;
-
-        assert_eq!(calculate_scroll_offset(5, total, visible), 5);
-        assert_eq!(calculate_scroll_offset(15, total, visible), 15);
-    }
-
-    #[test]
-    fn test_is_at_bottom_content_fits() {
-        assert!(is_at_bottom(0, 10, 20));
-    }
-
-    #[test]
-    fn test_is_at_bottom_scrolled_to_end() {
-        assert!(is_at_bottom(20, 30, 10));
-    }
-
-    #[test]
-    fn test_is_at_bottom_not_at_end() {
-        assert!(!is_at_bottom(10, 30, 10));
-    }
-}

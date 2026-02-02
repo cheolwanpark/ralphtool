@@ -48,7 +48,7 @@ fn run_tui() -> Result<()> {
     }
 
     while app.running {
-        terminal.draw(|frame| render(frame, &app))?;
+        terminal.draw(|frame| render(frame, &mut app))?;
 
         // Process loop events when on the loop execution screen
         if app.screen == app::Screen::LoopExecution {

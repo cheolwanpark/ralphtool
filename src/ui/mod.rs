@@ -182,7 +182,7 @@ pub(crate) fn centered_rect(area: Rect) -> Rect {
 
 use crate::app::{App, Screen};
 
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &mut App) {
     match app.screen {
         Screen::ChangeSelection => render_selection(frame, app),
         Screen::ConversionPreview => render_preview(frame, app),

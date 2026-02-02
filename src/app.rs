@@ -89,6 +89,10 @@ pub struct App {
     pub loop_info_scroll: usize,
     /// Scroll offset for the Agent tab.
     pub loop_agent_scroll: usize,
+    /// Auto-scroll flag for the Agent tab (snap-to-bottom behavior).
+    pub loop_agent_auto_scroll: bool,
+    /// Last known max scroll position for Agent tab (updated during render).
+    pub loop_agent_max_scroll: usize,
     /// Loop result for review.
     pub loop_result: LoopResult,
     /// Scroll offset for result screen (used for Changed Files tab).
@@ -125,6 +129,8 @@ impl App {
             loop_tab: LoopTab::default(),
             loop_info_scroll: 0,
             loop_agent_scroll: 0,
+            loop_agent_auto_scroll: true,
+            loop_agent_max_scroll: 0,
             loop_result: LoopResult::default(),
             result_scroll_offset: 0,
             result_tab: ResultTab::default(),
@@ -153,6 +159,8 @@ impl App {
             self.loop_tab = LoopTab::default();
             self.loop_info_scroll = 0;
             self.loop_agent_scroll = 0;
+            self.loop_agent_auto_scroll = true;
+            self.loop_agent_max_scroll = 0;
 
             // Create channel for events (std::sync::mpsc for TUI compatibility)
             let (tx, rx) = mpsc::channel();
@@ -493,6 +501,10 @@ impl App {
                         self.loop_state.started_story_ids.push(story_id.clone());
                         // Auto-select newly started story
                         self.loop_selected_story = self.loop_state.started_story_ids.len() - 1;
+                        // Reset scroll positions for the new story
+                        self.loop_info_scroll = 0;
+                        self.loop_agent_scroll = 0;
+                        self.loop_agent_auto_scroll = true;
                     }
 
                     // Initialize story_events entry if not present
@@ -504,6 +516,10 @@ impl App {
                         self.loop_state.started_story_ids.push(story_id.clone());
                         // Auto-select newly started story
                         self.loop_selected_story = self.loop_state.started_story_ids.len() - 1;
+                        // Reset scroll positions for the new story
+                        self.loop_info_scroll = 0;
+                        self.loop_agent_scroll = 0;
+                        self.loop_agent_auto_scroll = true;
                     }
 
                     // Store the full StreamEvent in story_events HashMap
@@ -593,6 +609,10 @@ impl App {
     pub fn navigate_to_previous_story(&mut self) {
         if self.can_navigate_left() {
             self.loop_selected_story -= 1;
+            // Reset scroll positions for the new story
+            self.loop_info_scroll = 0;
+            self.loop_agent_scroll = 0;
+            self.loop_agent_auto_scroll = true;
         }
     }
 
@@ -600,6 +620,10 @@ impl App {
     pub fn navigate_to_next_story(&mut self) {
         if self.can_navigate_right() {
             self.loop_selected_story += 1;
+            // Reset scroll positions for the new story
+            self.loop_info_scroll = 0;
+            self.loop_agent_scroll = 0;
+            self.loop_agent_auto_scroll = true;
         }
     }
 
@@ -612,18 +636,29 @@ impl App {
     }
 
     /// Scrolls up in the loop execution screen (current tab).
+    /// For Agent tab, disables auto-scroll since user is reading history.
     pub fn loop_scroll_up(&mut self) {
         match self.loop_tab {
             LoopTab::Info => self.loop_info_scroll = self.loop_info_scroll.saturating_sub(1),
-            LoopTab::Agent => self.loop_agent_scroll = self.loop_agent_scroll.saturating_sub(1),
+            LoopTab::Agent => {
+                self.loop_agent_scroll = self.loop_agent_scroll.saturating_sub(1);
+                self.loop_agent_auto_scroll = false;
+            }
         }
     }
 
     /// Scrolls down in the loop execution screen (current tab).
+    /// For Agent tab, re-enables auto-scroll when reaching bottom.
     pub fn loop_scroll_down(&mut self) {
         match self.loop_tab {
             LoopTab::Info => self.loop_info_scroll = self.loop_info_scroll.saturating_add(1),
-            LoopTab::Agent => self.loop_agent_scroll = self.loop_agent_scroll.saturating_add(1),
+            LoopTab::Agent => {
+                self.loop_agent_scroll = self.loop_agent_scroll.saturating_add(1);
+                // Re-enable auto-scroll when reaching bottom
+                if self.loop_agent_scroll >= self.loop_agent_max_scroll {
+                    self.loop_agent_auto_scroll = true;
+                }
+            }
         }
     }
 
@@ -653,6 +688,8 @@ impl App {
         self.loop_tab = LoopTab::default();
         self.loop_info_scroll = 0;
         self.loop_agent_scroll = 0;
+        self.loop_agent_auto_scroll = true;
+        self.loop_agent_max_scroll = 0;
     }
 }
 
@@ -790,6 +827,8 @@ mod tests {
         app.loop_tab = LoopTab::Agent;
         app.loop_info_scroll = 5;
         app.loop_agent_scroll = 10;
+        app.loop_agent_auto_scroll = false;
+        app.loop_agent_max_scroll = 100;
 
         app.cleanup_loop();
 
@@ -804,6 +843,8 @@ mod tests {
         assert_eq!(app.loop_tab, LoopTab::Info);
         assert_eq!(app.loop_info_scroll, 0);
         assert_eq!(app.loop_agent_scroll, 0);
+        assert!(app.loop_agent_auto_scroll);
+        assert_eq!(app.loop_agent_max_scroll, 0);
     }
 
     #[test]
@@ -1035,6 +1076,82 @@ mod tests {
     }
 
     #[test]
+    fn navigate_to_previous_story_resets_scroll_and_auto_scroll() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+        app.loop_selected_story = 2;
+        // Set non-default scroll positions
+        app.loop_info_scroll = 10;
+        app.loop_agent_scroll = 15;
+        app.loop_agent_auto_scroll = false;
+
+        app.navigate_to_previous_story();
+
+        assert_eq!(app.loop_selected_story, 1);
+        assert_eq!(app.loop_info_scroll, 0);
+        assert_eq!(app.loop_agent_scroll, 0);
+        assert!(app.loop_agent_auto_scroll);
+    }
+
+    #[test]
+    fn navigate_to_next_story_resets_scroll_and_auto_scroll() {
+        let mut app = App::new();
+        app.loop_state.started_story_ids = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+        app.loop_selected_story = 0;
+        // Set non-default scroll positions
+        app.loop_info_scroll = 10;
+        app.loop_agent_scroll = 15;
+        app.loop_agent_auto_scroll = false;
+
+        app.navigate_to_next_story();
+
+        assert_eq!(app.loop_selected_story, 1);
+        assert_eq!(app.loop_info_scroll, 0);
+        assert_eq!(app.loop_agent_scroll, 0);
+        assert!(app.loop_agent_auto_scroll);
+    }
+
+    #[test]
+    fn auto_select_new_story_resets_scroll_and_auto_scroll() {
+        let mut app = App::new();
+        let (tx, rx) = mpsc::channel();
+        app.loop_event_rx = Some(rx);
+
+        // First story, set scroll positions
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "1".to_string(),
+            story_title: "First".to_string(),
+            current: 1,
+            total: 3,
+            completed: 0,
+        })
+        .unwrap();
+        app.process_loop_events();
+
+        // Simulate user scrolling
+        app.loop_info_scroll = 10;
+        app.loop_agent_scroll = 15;
+        app.loop_agent_auto_scroll = false;
+
+        // Second story arrives (new story auto-selection)
+        tx.send(LoopEvent::StoryProgress {
+            story_id: "2".to_string(),
+            story_title: "Second".to_string(),
+            current: 2,
+            total: 3,
+            completed: 1,
+        })
+        .unwrap();
+        app.process_loop_events();
+
+        // Should auto-select and reset scroll positions
+        assert_eq!(app.loop_selected_story, 1);
+        assert_eq!(app.loop_info_scroll, 0);
+        assert_eq!(app.loop_agent_scroll, 0);
+        assert!(app.loop_agent_auto_scroll);
+    }
+
+    #[test]
     fn switch_loop_tab_toggles_between_info_and_agent() {
         let mut app = App::new();
         assert_eq!(app.loop_tab, LoopTab::Info);
@@ -1065,6 +1182,77 @@ mod tests {
         // Scroll up
         app.loop_scroll_up();
         assert_eq!(app.loop_agent_scroll, 0);
+    }
+
+    #[test]
+    fn loop_scroll_up_disables_auto_scroll_on_agent_tab() {
+        let mut app = App::new();
+        app.loop_tab = LoopTab::Agent;
+        app.loop_agent_auto_scroll = true;
+        app.loop_agent_scroll = 5;
+
+        app.loop_scroll_up();
+
+        assert_eq!(app.loop_agent_scroll, 4);
+        assert!(!app.loop_agent_auto_scroll);
+    }
+
+    #[test]
+    fn loop_scroll_up_does_not_affect_auto_scroll_on_info_tab() {
+        let mut app = App::new();
+        app.loop_tab = LoopTab::Info;
+        app.loop_agent_auto_scroll = true;
+        app.loop_info_scroll = 5;
+
+        app.loop_scroll_up();
+
+        assert_eq!(app.loop_info_scroll, 4);
+        // Info tab doesn't affect auto_scroll
+        assert!(app.loop_agent_auto_scroll);
+    }
+
+    #[test]
+    fn loop_scroll_down_enables_auto_scroll_when_at_bottom() {
+        let mut app = App::new();
+        app.loop_tab = LoopTab::Agent;
+        app.loop_agent_auto_scroll = false;
+        app.loop_agent_scroll = 9;
+        app.loop_agent_max_scroll = 10;
+
+        app.loop_scroll_down();
+
+        assert_eq!(app.loop_agent_scroll, 10);
+        assert!(app.loop_agent_auto_scroll);
+    }
+
+    #[test]
+    fn loop_scroll_down_does_not_enable_auto_scroll_before_bottom() {
+        let mut app = App::new();
+        app.loop_tab = LoopTab::Agent;
+        app.loop_agent_auto_scroll = false;
+        app.loop_agent_scroll = 5;
+        app.loop_agent_max_scroll = 10;
+
+        app.loop_scroll_down();
+
+        assert_eq!(app.loop_agent_scroll, 6);
+        // Not at bottom yet, auto_scroll stays false
+        assert!(!app.loop_agent_auto_scroll);
+    }
+
+    #[test]
+    fn loop_scroll_down_enables_auto_scroll_when_beyond_bottom() {
+        let mut app = App::new();
+        app.loop_tab = LoopTab::Agent;
+        app.loop_agent_auto_scroll = false;
+        app.loop_agent_scroll = 10;
+        app.loop_agent_max_scroll = 10;
+
+        // Even if already at/beyond max, scrolling down should enable auto_scroll
+        app.loop_scroll_down();
+
+        assert_eq!(app.loop_agent_scroll, 11); // Would be clamped during render
+        assert!(app.loop_agent_auto_scroll);
     }
 
     #[test]
