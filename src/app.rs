@@ -44,6 +44,17 @@ pub enum LoopTab {
     Agent,
 }
 
+/// Tab selection for the result screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)] // Used in Story 3 and Story 4
+pub enum ResultTab {
+    /// Shows stories with their tasks and completion status.
+    #[default]
+    Tasks,
+    /// Shows list of changed files from git diff.
+    ChangedFiles,
+}
+
 pub struct App {
     pub running: bool,
     /// Current screen being displayed.
@@ -80,8 +91,12 @@ pub struct App {
     pub loop_agent_scroll: usize,
     /// Loop result for review.
     pub loop_result: LoopResult,
-    /// Scroll offset for result screen.
+    /// Scroll offset for result screen (used for Changed Files tab).
     pub result_scroll_offset: usize,
+    /// Active tab in the result screen.
+    pub result_tab: ResultTab,
+    /// Scroll offset for the Tasks tab in result screen.
+    pub result_tasks_scroll: usize,
     /// Receiver for loop events from the orchestrator.
     pub loop_event_rx: Option<Receiver<LoopEvent>>,
     /// Stop flag to signal the orchestrator to stop.
@@ -112,6 +127,8 @@ impl App {
             loop_agent_scroll: 0,
             loop_result: LoopResult::default(),
             result_scroll_offset: 0,
+            result_tab: ResultTab::default(),
+            result_tasks_scroll: 0,
             loop_event_rx: None,
             loop_stop_flag: None,
             loop_thread: None,
@@ -194,6 +211,8 @@ impl App {
     pub fn show_loop_result(&mut self, result: LoopResult) {
         self.loop_result = result;
         self.result_scroll_offset = 0;
+        self.result_tab = ResultTab::default();
+        self.result_tasks_scroll = 0;
         self.screen = Screen::LoopResult;
     }
 
@@ -202,13 +221,34 @@ impl App {
         // Get changed files from git diff
         let changed_files = Self::get_changed_files();
 
+        // Re-parse tasks.md to get updated completion status
+        let stories = if let Some(ref name) = self.selected_change_name {
+            OpenSpecAdapter::new(name)
+                .ok()
+                .map(|adapter| adapter.stories().unwrap_or_default())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        // Calculate completion statistics
+        let stories_total = stories.len();
+        let stories_completed = stories.iter().filter(|s| s.is_complete()).count();
+        let tasks_total: usize = stories.iter().map(|s| s.tasks.len()).sum();
+        let tasks_completed: usize = stories
+            .iter()
+            .flat_map(|s| &s.tasks)
+            .filter(|t| t.done)
+            .count();
+
         LoopResult {
             change_name: self.selected_change_name.clone().unwrap_or_default(),
-            stories_completed: 0,
-            stories_total: 0,
-            tasks_completed: 0,
+            stories_completed,
+            stories_total,
+            tasks_completed,
+            tasks_total,
             changed_files,
-            verification_status: Vec::new(),
+            stories,
         }
     }
 
@@ -231,14 +271,40 @@ impl App {
         }
     }
 
-    /// Scrolls up in the result screen.
-    pub fn result_scroll_up(&mut self) {
-        self.result_scroll_offset = self.result_scroll_offset.saturating_sub(1);
+    /// Switches between Tasks and ChangedFiles tabs in the result screen.
+    pub fn switch_result_tab(&mut self) {
+        self.result_tab = match self.result_tab {
+            ResultTab::Tasks => ResultTab::ChangedFiles,
+            ResultTab::ChangedFiles => ResultTab::Tasks,
+        };
     }
 
-    /// Scrolls down in the result screen.
+    /// Scrolls up in the Tasks tab of the result screen.
+    #[allow(dead_code)] // Provided for direct Tasks tab scrolling; result_scroll_up is used in event handling
+    pub fn result_tasks_scroll_up(&mut self) {
+        self.result_tasks_scroll = self.result_tasks_scroll.saturating_sub(1);
+    }
+
+    /// Scrolls down in the Tasks tab of the result screen.
+    #[allow(dead_code)] // Provided for direct Tasks tab scrolling; result_scroll_down is used in event handling
+    pub fn result_tasks_scroll_down(&mut self) {
+        self.result_tasks_scroll = self.result_tasks_scroll.saturating_add(1);
+    }
+
+    /// Scrolls up in the result screen (uses appropriate offset based on active tab).
+    pub fn result_scroll_up(&mut self) {
+        match self.result_tab {
+            ResultTab::Tasks => self.result_tasks_scroll = self.result_tasks_scroll.saturating_sub(1),
+            ResultTab::ChangedFiles => self.result_scroll_offset = self.result_scroll_offset.saturating_sub(1),
+        }
+    }
+
+    /// Scrolls down in the result screen (uses appropriate offset based on active tab).
     pub fn result_scroll_down(&mut self) {
-        self.result_scroll_offset = self.result_scroll_offset.saturating_add(1);
+        match self.result_tab {
+            ResultTab::Tasks => self.result_tasks_scroll = self.result_tasks_scroll.saturating_add(1),
+            ResultTab::ChangedFiles => self.result_scroll_offset = self.result_scroll_offset.saturating_add(1),
+        }
     }
 
     pub fn quit(&mut self) {
@@ -1166,5 +1232,83 @@ mod tests {
         assert!(!app.can_navigate_right());
         app.navigate_to_next_story();
         assert_eq!(app.loop_selected_story, 2); // Still on story 3
+    }
+
+    #[test]
+    fn switch_result_tab_toggles_between_tasks_and_changed_files() {
+        let mut app = App::new();
+        assert_eq!(app.result_tab, ResultTab::Tasks);
+
+        app.switch_result_tab();
+        assert_eq!(app.result_tab, ResultTab::ChangedFiles);
+
+        app.switch_result_tab();
+        assert_eq!(app.result_tab, ResultTab::Tasks);
+    }
+
+    #[test]
+    fn result_tasks_scroll_up_decreases_offset() {
+        let mut app = App::new();
+        app.result_tasks_scroll = 5;
+
+        app.result_tasks_scroll_up();
+
+        assert_eq!(app.result_tasks_scroll, 4);
+    }
+
+    #[test]
+    fn result_tasks_scroll_down_increases_offset() {
+        let mut app = App::new();
+        app.result_tasks_scroll = 5;
+
+        app.result_tasks_scroll_down();
+
+        assert_eq!(app.result_tasks_scroll, 6);
+    }
+
+    #[test]
+    fn result_tasks_scroll_stops_at_zero() {
+        let mut app = App::new();
+        app.result_tasks_scroll = 0;
+
+        app.result_tasks_scroll_up();
+
+        assert_eq!(app.result_tasks_scroll, 0);
+    }
+
+    #[test]
+    fn result_scroll_respects_active_tab() {
+        let mut app = App::new();
+        // Default tab is Tasks
+        app.result_tasks_scroll = 3;
+
+        app.result_scroll_down();
+        assert_eq!(app.result_tasks_scroll, 4);
+        assert_eq!(app.result_scroll_offset, 0); // ChangedFiles tab unchanged
+
+        // Switch to ChangedFiles tab
+        app.switch_result_tab();
+        app.result_scroll_down();
+        assert_eq!(app.result_scroll_offset, 1);
+        assert_eq!(app.result_tasks_scroll, 4); // Tasks tab unchanged
+    }
+
+    #[test]
+    fn result_scroll_preserves_position_when_switching_tabs() {
+        let mut app = App::new();
+
+        // Scroll in Tasks tab
+        app.result_tasks_scroll = 10;
+
+        // Switch to ChangedFiles and scroll
+        app.switch_result_tab();
+        app.result_scroll_offset = 5;
+
+        // Switch back to Tasks
+        app.switch_result_tab();
+
+        // Both scroll positions preserved
+        assert_eq!(app.result_tasks_scroll, 10);
+        assert_eq!(app.result_scroll_offset, 5);
     }
 }

@@ -94,6 +94,7 @@ fn handle_result_events(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
         KeyCode::Esc => app.back_to_selection(),
+        KeyCode::Tab => app.switch_result_tab(),
         KeyCode::Up => app.result_scroll_up(),
         KeyCode::Down => app.result_scroll_down(),
         _ => {}
@@ -123,6 +124,7 @@ fn handle_result_mouse(app: &mut App, event: MouseEvent) {
         _ => {}
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -269,7 +271,10 @@ mod tests {
     // Result screen mouse scroll tests
     #[test]
     fn result_mouse_scroll_up_decreases_offset() {
+        use crate::app::ResultTab;
+
         let mut app = App::new();
+        app.result_tab = ResultTab::ChangedFiles;
         app.result_scroll_offset = 5;
 
         handle_result_mouse(&mut app, create_scroll_up_event());
@@ -279,7 +284,10 @@ mod tests {
 
     #[test]
     fn result_mouse_scroll_down_increases_offset() {
+        use crate::app::ResultTab;
+
         let mut app = App::new();
+        app.result_tab = ResultTab::ChangedFiles;
         app.result_scroll_offset = 5;
 
         handle_result_mouse(&mut app, create_scroll_down_event());
@@ -289,7 +297,10 @@ mod tests {
 
     #[test]
     fn result_mouse_scroll_up_stops_at_zero() {
+        use crate::app::ResultTab;
+
         let mut app = App::new();
+        app.result_tab = ResultTab::ChangedFiles;
         app.result_scroll_offset = 0;
 
         handle_result_mouse(&mut app, create_scroll_up_event());
@@ -299,11 +310,70 @@ mod tests {
 
     #[test]
     fn result_mouse_ignores_non_scroll_events() {
+        use crate::app::ResultTab;
+
         let mut app = App::new();
+        app.result_tab = ResultTab::ChangedFiles;
         app.result_scroll_offset = 5;
 
         handle_result_mouse(&mut app, create_click_event());
 
         assert_eq!(app.result_scroll_offset, 5); // Unchanged
+    }
+
+    #[test]
+    fn result_mouse_scroll_respects_active_tab() {
+        use crate::app::ResultTab;
+
+        let mut app = App::new();
+        // Default tab is Tasks
+        assert_eq!(app.result_tab, ResultTab::Tasks);
+        app.result_tasks_scroll = 3;
+
+        handle_result_mouse(&mut app, create_scroll_down_event());
+
+        assert_eq!(app.result_tasks_scroll, 4);
+        assert_eq!(app.result_scroll_offset, 0); // ChangedFiles tab unchanged
+    }
+
+    #[test]
+    fn result_tab_switching_via_handle_result_events() {
+        use crate::app::ResultTab;
+
+        let mut app = App::new();
+        assert_eq!(app.result_tab, ResultTab::Tasks);
+
+        handle_result_events(&mut app, KeyCode::Tab);
+        assert_eq!(app.result_tab, ResultTab::ChangedFiles);
+
+        handle_result_events(&mut app, KeyCode::Tab);
+        assert_eq!(app.result_tab, ResultTab::Tasks);
+    }
+
+    #[test]
+    fn result_scroll_preserves_position_when_switching_tabs() {
+        use crate::app::ResultTab;
+
+        let mut app = App::new();
+        // Scroll down in Tasks tab
+        app.result_tasks_scroll = 5;
+
+        // Switch to ChangedFiles
+        handle_result_events(&mut app, KeyCode::Tab);
+        assert_eq!(app.result_tab, ResultTab::ChangedFiles);
+
+        // Scroll in ChangedFiles tab
+        handle_result_events(&mut app, KeyCode::Down);
+        handle_result_events(&mut app, KeyCode::Down);
+        assert_eq!(app.result_scroll_offset, 2);
+
+        // Switch back to Tasks
+        handle_result_events(&mut app, KeyCode::Tab);
+        assert_eq!(app.result_tab, ResultTab::Tasks);
+
+        // Tasks scroll position should be preserved
+        assert_eq!(app.result_tasks_scroll, 5);
+        // ChangedFiles scroll position should be preserved
+        assert_eq!(app.result_scroll_offset, 2);
     }
 }
