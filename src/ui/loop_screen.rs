@@ -243,6 +243,9 @@ fn render_info_tab(frame: &mut Frame, area: Rect, app: &App) {
             lines.push(Line::from(""));
 
             // Task list with checkboxes
+            // Calculate available width for wrapping (area.width minus 2 for borders)
+            let content_width = area.width.saturating_sub(2) as usize;
+
             for task in &story.tasks {
                 let checkbox = if task.done { "☑" } else { "☐" };
                 let checkbox_style = if task.done {
@@ -256,14 +259,40 @@ fn render_info_tab(frame: &mut Frame, area: Rect, app: &App) {
                     Style::default()
                 };
 
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(checkbox, checkbox_style),
-                    Span::raw(" "),
-                    Span::styled(&task.id, Style::default().fg(Color::DarkGray)),
-                    Span::raw(" "),
-                    Span::styled(&task.description, text_style),
-                ]));
+                // Calculate prefix width: "  " + checkbox + " " + task.id + " "
+                // Checkbox (☑/☐) is 1 display width in most terminals
+                let prefix_width = 2 + 1 + 1 + task.id.len() + 1;
+                let description_width = content_width.saturating_sub(prefix_width);
+
+                // Create indent string for continuation lines
+                let indent: String = " ".repeat(prefix_width);
+
+                // Wrap the description manually
+                let wrapped_lines = wrap_text_with_indent(
+                    &task.description,
+                    description_width,
+                    description_width,
+                    &indent,
+                );
+
+                // First line with full prefix
+                if let Some(first_line) = wrapped_lines.first() {
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(checkbox, checkbox_style),
+                        Span::raw(" "),
+                        Span::styled(&task.id, Style::default().fg(Color::DarkGray)),
+                        Span::raw(" "),
+                        Span::styled(first_line.clone(), text_style),
+                    ]));
+                }
+
+                // Continuation lines (already have indent in them)
+                for wrapped_line in wrapped_lines.iter().skip(1) {
+                    lines.push(Line::from(vec![
+                        Span::styled(wrapped_line.clone(), text_style),
+                    ]));
+                }
             }
         } else {
             // Story not found in loaded stories - show ID only
@@ -291,8 +320,7 @@ fn render_info_tab(frame: &mut Frame, area: Rect, app: &App) {
         .collect();
 
     let content = Paragraph::new(visible_lines)
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
+        .block(Block::default().borders(Borders::ALL));
     frame.render_widget(content, area);
 }
 
@@ -359,6 +387,7 @@ fn render_agent_tab(frame: &mut Frame, area: Rect, app: &App) {
 
 /// Renders a message with "Assistant:" prefix.
 /// Handles multi-line messages by prefixing only the first line.
+/// Consecutive blank lines are compressed to a single blank line.
 fn render_message_lines<'a>(lines: &mut Vec<Line<'a>>, text: &str) {
     let message_lines: Vec<&str> = text.lines().collect();
 
@@ -370,21 +399,36 @@ fn render_message_lines<'a>(lines: &mut Vec<Line<'a>>, text: &str) {
     }
 
     // First line with prefix
+    let first_line = message_lines[0];
+    let first_is_blank = first_line.trim().is_empty();
     lines.push(Line::from(vec![
         Span::styled("Assistant: ", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
-        Span::raw(message_lines[0].to_string()),
+        Span::raw(first_line.to_string()),
     ]));
+
+    // Track if previous line was blank to compress consecutive blank lines
+    let mut prev_was_blank = first_is_blank;
 
     // Subsequent lines without prefix (indented to align)
     for line in message_lines.iter().skip(1) {
+        let is_blank = line.trim().is_empty();
+
+        // Skip consecutive blank lines
+        if is_blank && prev_was_blank {
+            continue;
+        }
+
         lines.push(Line::from(vec![
             Span::raw("           "), // 11 spaces to align with "Assistant: "
             Span::raw(line.to_string()),
         ]));
+
+        prev_was_blank = is_blank;
     }
 }
 
 /// Renders the Done section with usage stats in a distinct color.
+/// Consecutive blank lines are compressed to a single blank line.
 ///
 /// Display format:
 /// ```text
@@ -402,17 +446,31 @@ fn render_done_section<'a>(lines: &mut Vec<Line<'a>>, response: &Response) {
         ]));
     } else {
         // First line with prefix
+        let first_line = content_lines[0];
+        let first_is_blank = first_line.trim().is_empty();
         lines.push(Line::from(vec![
             Span::styled("Done: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled(content_lines[0].to_string(), Style::default().fg(Color::Green)),
+            Span::styled(first_line.to_string(), Style::default().fg(Color::Green)),
         ]));
+
+        // Track if previous line was blank to compress consecutive blank lines
+        let mut prev_was_blank = first_is_blank;
 
         // Subsequent content lines
         for line in content_lines.iter().skip(1) {
+            let is_blank = line.trim().is_empty();
+
+            // Skip consecutive blank lines
+            if is_blank && prev_was_blank {
+                continue;
+            }
+
             lines.push(Line::from(vec![
                 Span::raw("      "), // 6 spaces to align with "Done: "
                 Span::styled(line.to_string(), Style::default().fg(Color::Green)),
             ]));
+
+            prev_was_blank = is_blank;
         }
     }
 
@@ -452,6 +510,92 @@ fn calculate_scroll_offset(
         // Respect user's scroll position
         user_scroll.min(max_scroll)
     }
+}
+
+/// Wraps text to fit within a given width, with indentation for continuation lines.
+///
+/// Returns a vector of strings where:
+/// - First element is the first line (no indent applied here, caller adds prefix)
+/// - Subsequent elements are continuation lines with the specified indent
+///
+/// The function breaks on word boundaries when possible.
+fn wrap_text_with_indent(text: &str, first_line_width: usize, continuation_width: usize, indent: &str) -> Vec<String> {
+    let mut result = Vec::new();
+
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let mut pos = 0;
+    let mut is_first_line = true;
+
+    while pos < chars.len() {
+        let available_width = if is_first_line { first_line_width } else { continuation_width };
+
+        if available_width == 0 {
+            // No space available, just take one character at a time
+            if is_first_line {
+                result.push(chars[pos].to_string());
+            } else {
+                result.push(format!("{}{}", indent, chars[pos]));
+            }
+            pos += 1;
+            is_first_line = false;
+            continue;
+        }
+
+        // Calculate how many characters we can fit
+        let remaining = chars.len() - pos;
+
+        if remaining <= available_width {
+            // Rest of text fits on this line
+            let line_text: String = chars[pos..].iter().collect();
+            if is_first_line {
+                result.push(line_text);
+            } else {
+                result.push(format!("{}{}", indent, line_text));
+            }
+            break;
+        }
+
+        // Need to wrap - find a good break point
+        let end_pos = pos + available_width;
+
+        // Look backwards for a space to break on
+        let mut break_pos = end_pos;
+        while break_pos > pos && chars[break_pos - 1] != ' ' {
+            break_pos -= 1;
+        }
+
+        // If no space found, just break at the width limit
+        if break_pos == pos {
+            break_pos = end_pos;
+        }
+
+        let line_text: String = chars[pos..break_pos].iter().collect();
+        let trimmed = line_text.trim_end();
+
+        if is_first_line {
+            result.push(trimmed.to_string());
+        } else {
+            result.push(format!("{}{}", indent, trimmed));
+        }
+
+        // Skip any leading spaces on the next line
+        pos = break_pos;
+        while pos < chars.len() && chars[pos] == ' ' {
+            pos += 1;
+        }
+
+        is_first_line = false;
+    }
+
+    if result.is_empty() {
+        result.push(String::new());
+    }
+
+    result
 }
 
 /// Checks if the current scroll position is at the bottom (for auto-scroll).
