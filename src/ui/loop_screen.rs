@@ -133,11 +133,6 @@ fn render_story_indicator(frame: &mut Frame, area: Rect, app: &App) {
 
     let mut spans: Vec<Span> = vec![Span::raw(" Stories: ")];
 
-    // Add ellipsis if there are stories before the window
-    if offset > 0 {
-        spans.push(Span::styled("... ", Style::default().fg(Color::DarkGray)));
-    }
-
     for (i, story_id) in visible.iter().enumerate() {
         let actual_idx = offset + i;
         let is_current = current_story_id == Some(*story_id);
@@ -167,11 +162,6 @@ fn render_story_indicator(frame: &mut Frame, area: Rect, app: &App) {
         if i < visible.len() - 1 {
             spans.push(Span::raw(" "));
         }
-    }
-
-    // Add ellipsis if there are stories after the window
-    if offset + 5 < started.len() {
-        spans.push(Span::styled(" ...", Style::default().fg(Color::DarkGray)));
     }
 
     let line = Line::from(spans);

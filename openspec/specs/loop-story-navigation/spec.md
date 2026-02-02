@@ -40,6 +40,7 @@ The loop execution screen SHALL display a story indicator showing the current po
 - **WHEN** there are more than 5 started stories
 - **THEN** a window of 5 story numbers is displayed
 - **AND** the selected story is centered in the window when possible
+- **AND** no ellipsis indicators are shown
 
 #### Scenario: Current story visual distinction
 - **WHEN** displaying story indicators

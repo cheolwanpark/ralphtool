@@ -34,9 +34,12 @@ The currently active tab SHALL be visually highlighted.
 #### Scenario: User views Changed Files tab
 - **WHEN** user is on result screen with Changed Files tab selected
 - **THEN** content area shows list of changed files from git diff
-- **AND** added files are shown in green
-- **AND** modified files are shown in yellow
-- **AND** deleted files are shown in red
+- **AND** each line shows status character followed by filename
+- **AND** only the status character is colored (not the filename)
+- **AND** added files have green status character (A)
+- **AND** modified files have yellow status character (M)
+- **AND** deleted files have red status character (D)
+- **AND** filenames are displayed in default color
 
 ### Requirement: Tab key switches between tabs
 

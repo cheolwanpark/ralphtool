@@ -165,21 +165,32 @@ fn render_tasks_tab(frame: &mut Frame, area: Rect, result: &LoopResult, scroll_o
 
 /// Renders the Changed Files tab with color-coded file status.
 fn render_changed_files(frame: &mut Frame, area: Rect, result: &LoopResult, scroll_offset: usize) {
-    // Build lines with color-coded file status
+    // Build lines with color-coded status character only (not filename)
     let lines: Vec<Line> = result
         .changed_files
         .iter()
         .map(|file| {
-            let style = if file.starts_with('A') {
-                Style::default().fg(Color::Green)
-            } else if file.starts_with('D') {
-                Style::default().fg(Color::Red)
-            } else if file.starts_with('M') {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default()
+            // Split into status character and filename
+            // Format is typically "M\tfilename" or "M filename"
+            if file.is_empty() {
+                return Line::from(Span::raw(""));
+            }
+
+            let status = &file[0..1];
+            let filename = file[1..].trim_start();
+
+            let status_style = match status {
+                "A" => Style::default().fg(Color::Green),
+                "D" => Style::default().fg(Color::Red),
+                "M" => Style::default().fg(Color::Yellow),
+                _ => Style::default(),
             };
-            Line::from(Span::styled(file.as_str(), style))
+
+            Line::from(vec![
+                Span::styled(status, status_style),
+                Span::raw(" "),
+                Span::raw(filename),
+            ])
         })
         .collect();
 
