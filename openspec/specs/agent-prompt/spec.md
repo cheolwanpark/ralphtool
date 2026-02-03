@@ -9,7 +9,7 @@ Located in `src/agent/prompt.rs`. The prompt generation creates a markdown promp
 ## Requirements
 
 ### Requirement: Agent prompt template
-The system SHALL generate a story-specific prompt that tells the agent how to work on one story of a change, including completion and failure signal instructions.
+The system SHALL generate a story-specific prompt that tells the agent how to work on one story of a change, including completion and failure signal instructions, and shared learnings when available.
 
 #### Scenario: Prompt contains story context
 - **WHEN** the orchestrator generates an agent prompt for story N
@@ -52,6 +52,19 @@ The system SHALL generate a story-specific prompt that tells the agent how to wo
 - **WHEN** the orchestrator generates an agent prompt
 - **THEN** the prompt SHALL include spec tool usage instructions from the adapter's `tool_prompt()`
 - **AND** these instructions explain how to mark tasks complete in tasks.md
+
+#### Scenario: Prompt contains shared learnings when available
+- **WHEN** the orchestrator generates an agent prompt
+- **AND** the learnings file exists and contains content beyond the initial template
+- **THEN** the prompt SHALL include a "Shared Learnings" section with:
+  - Instructions on what to record (discoveries, decisions, gotchas)
+  - The path to the learnings file
+  - The existing learnings content
+
+#### Scenario: Prompt omits learnings section when empty
+- **WHEN** the orchestrator generates an agent prompt
+- **AND** the learnings file does not exist or contains only the initial template
+- **THEN** the prompt SHALL NOT include a learnings section
 
 ### Requirement: Prompt is self-contained
 The agent prompt SHALL contain all information needed to work on the story without requiring environment variables or special CLI commands.
