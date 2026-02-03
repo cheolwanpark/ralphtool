@@ -1,8 +1,4 @@
-## Purpose
-
-Branch-based state preservation for the Ralph Loop. Provides checkpoint/revert functionality using a dedicated `ralph/{change_name}` branch with commits as checkpoints, preserving working directory state before agent execution and restoring it on failure.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Checkpoint save
 The system SHALL save the current working directory state by creating a commit on the checkpoint branch, using async-safe command execution.
@@ -50,3 +46,17 @@ The system SHALL provide cleanup operations for when the loop completes, using a
 #### Scenario: Store original branch
 - **WHEN** the checkpoint system initializes
 - **THEN** it stores the current branch name for later restoration during cleanup
+
+## REMOVED Requirements
+
+### Requirement: Checkpoint drop
+**Reason**: No longer needed - commits persist and don't need explicit dropping like stashes
+**Migration**: Story completion now creates a new checkpoint commit instead of dropping a stash
+
+### Requirement: Stash naming convention
+**Reason**: Replaced by branch + commit approach - no longer using git stash
+**Migration**: Branch is named `ralph/{change_name}`, commits use message "checkpoint: {story_id}"
+
+### Requirement: Stash lookup by name
+**Reason**: Replaced by branch + commit approach - no longer need to search stash list
+**Migration**: Checkpoints are commits on the ralph branch, accessed via standard git operations

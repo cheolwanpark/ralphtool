@@ -6,11 +6,12 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crate::agent::StreamEvent;
+use crate::checkpoint::CompletionOption;
 use crate::ralph_loop::{LoopEvent, LoopState, DEFAULT_MAX_RETRIES, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use crate::spec::SpecAdapter;
 use crate::spec::{Scenario, Story};
-use crate::ui::LoopResult;
+use crate::ui::{CompletionData, CompletionReason, LoopResult};
 use anyhow::Result;
 
 /// The current screen being displayed.
@@ -22,6 +23,8 @@ pub enum Screen {
     ConversionPreview,
     /// Screen for displaying loop progress.
     LoopExecution,
+    /// Screen for selecting cleanup/keep option after loop completes.
+    LoopCompletion,
     /// Screen for reviewing loop results.
     LoopResult,
 }
@@ -129,6 +132,8 @@ pub struct App {
     pub quit_press_count: usize,
     /// Time of last 'q' press for tracking consecutive presses.
     pub last_quit_time: Option<Instant>,
+    /// Completion screen data.
+    pub completion_data: CompletionData,
 }
 
 impl App {
@@ -164,6 +169,7 @@ impl App {
             command_timeout: DEFAULT_COMMAND_TIMEOUT_SECS,
             quit_press_count: 0,
             last_quit_time: None,
+            completion_data: CompletionData::default(),
         }
     }
 
@@ -264,6 +270,38 @@ impl App {
         self.result_tab = ResultTab::default();
         self.result_tasks_scroll = 0;
         self.screen = Screen::LoopResult;
+    }
+
+    /// Transitions to the completion screen with the given reason.
+    pub fn show_completion_screen(&mut self, reason: CompletionReason, original_branch: String, ralph_branch: String) {
+        self.completion_data = CompletionData {
+            stories_completed: self.loop_state.completed_stories,
+            stories_total: self.loop_state.total_stories,
+            original_branch,
+            ralph_branch,
+            selected_option: 0,
+            in_progress: false,
+            progress_message: None,
+            completion_reason: reason,
+        };
+        self.screen = Screen::LoopCompletion;
+    }
+
+    /// Handles completion option selection and triggers cleanup/keep.
+    pub fn confirm_completion_option(&mut self) -> CompletionOption {
+        self.completion_data.in_progress = true;
+        let option = self.completion_data.selected_completion_option();
+        self.completion_data.progress_message = Some(match option {
+            CompletionOption::Cleanup => format!("Returning to {}...", self.completion_data.original_branch),
+            CompletionOption::Keep => format!("Staying on {}...", self.completion_data.ralph_branch),
+        });
+        option
+    }
+
+    /// Transitions from completion screen to result screen after cleanup/keep completes.
+    pub fn finish_completion(&mut self) {
+        let result = self.build_loop_result();
+        self.show_loop_result(result);
     }
 
     /// Builds a LoopResult from current state and git diff.

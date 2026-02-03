@@ -18,6 +18,7 @@ pub fn handle_events(app: &mut App) -> Result<()> {
                             handle_preview_events(app, key_event.code, key_event.modifiers)
                         }
                         Screen::LoopExecution => handle_loop_events(app, key_event.code),
+                        Screen::LoopCompletion => handle_completion_events(app, key_event.code),
                         Screen::LoopResult => handle_result_events(app, key_event.code),
                     }
                 }
@@ -101,6 +102,40 @@ fn handle_loop_events(app: &mut App, code: KeyCode) {
         // Scroll within current tab
         KeyCode::Up => app.loop_scroll_up(),
         KeyCode::Down => app.loop_scroll_down(),
+        _ => {}
+    }
+}
+
+fn handle_completion_events(app: &mut App, code: KeyCode) {
+    // Don't process input while an operation is in progress
+    if app.completion_data.in_progress {
+        return;
+    }
+
+    match code {
+        // Select cleanup option
+        KeyCode::Char('c') | KeyCode::Char('C') => {
+            app.completion_data.select_cleanup();
+        }
+        // Select keep option
+        KeyCode::Char('k') | KeyCode::Char('K') => {
+            app.completion_data.select_keep();
+        }
+        // Toggle between options
+        KeyCode::Up | KeyCode::Down => {
+            app.completion_data.toggle_option();
+        }
+        // Confirm selection - note: actual cleanup is handled in the main loop
+        // This just sets in_progress and returns the option to be processed
+        KeyCode::Enter => {
+            // Mark as pending confirmation - will be handled by main loop
+            app.completion_data.in_progress = true;
+        }
+        // Cancel and go back to selection without cleanup
+        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            app.cleanup_loop();
+            app.back_to_selection();
+        }
         _ => {}
     }
 }

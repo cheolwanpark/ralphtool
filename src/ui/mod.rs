@@ -2,11 +2,13 @@
 //!
 //! Contains screen-specific modules for the TUI application.
 
+mod completion_screen;
 mod loop_screen;
 mod preview;
 mod result_screen;
 mod selection;
 
+pub use completion_screen::{render_completion_screen, CompletionData, CompletionReason};
 pub use loop_screen::render_loop_screen;
 pub use preview::render_preview;
 pub use result_screen::{render_result_screen, LoopResult};
@@ -187,6 +189,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Screen::ChangeSelection => render_selection(frame, app),
         Screen::ConversionPreview => render_preview(frame, app),
         Screen::LoopExecution => render_loop_screen(frame, app),
+        Screen::LoopCompletion => render_completion_screen(frame, &app.completion_data),
         Screen::LoopResult => render_result_screen(
             frame,
             &app.loop_result,

@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use super::{LoopEvent, LoopEventSender, LoopState, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::agent::{CodingAgent, PromptBuilder, StreamEvent};
-use crate::checkpoint::Checkpoint;
+use crate::checkpoint::{Checkpoint, CompletionOption};
 use crate::error::Result;
 use crate::spec::{self, Story};
 
@@ -42,7 +42,7 @@ pub struct Orchestrator {
     /// Flag to stop the loop.
     stop_flag: Arc<AtomicBool>,
 
-    /// Checkpoint manager for git stash-based state preservation.
+    /// Checkpoint manager for branch-based state preservation.
     checkpoint: Checkpoint,
 
     /// Maximum number of retries per story.
@@ -91,18 +91,34 @@ impl Orchestrator {
     /// incomplete story. Detects completion signal and refreshes state
     /// between iterations. Includes retry logic with checkpoint/revert
     /// on failure.
+    ///
+    /// Uses branch-based checkpoints:
+    /// - `init()` at loop start creates ralph/{change} branch
+    /// - `commit_checkpoint()` after each successful story
+    /// - `revert()` (reset --hard HEAD) on failure
+    /// - Returns LoopState with completion_option for TUI to handle
     pub async fn run(&mut self) -> Result<LoopState> {
         // Initialize state
         let mut state = LoopState::new(&self.change_name);
         state.running = true;
+
+        // Initialize checkpoint system at loop start (creates ralph branch)
+        if let Err(e) = self.checkpoint.init().await {
+            self.emit(LoopEvent::Error {
+                message: format!("Failed to initialize checkpoint system: {}", e),
+            })
+            .await;
+            self.emit(LoopEvent::Complete).await;
+            state.running = false;
+            return Ok(state);
+        }
 
         // Story iteration loop
         'story_loop: loop {
             // Check for stop request
             if self.stop_flag.load(Ordering::Relaxed) {
                 state.running = false;
-                // Clean up checkpoints before exit (async)
-                let _ = self.checkpoint.cleanup().await;
+                // Don't cleanup here - let TUI handle completion options
                 self.emit(LoopEvent::Complete).await;
                 return Ok(state);
             }
@@ -140,17 +156,7 @@ impl Orchestrator {
                     })
                     .await;
 
-                    // Save checkpoint before agent spawn (async)
-                    if let Err(e) = self.checkpoint.save(&story.id).await {
-                        self.emit(LoopEvent::Error {
-                            message: format!(
-                                "Failed to save checkpoint for story {}: {}",
-                                story.id, e
-                            ),
-                        })
-                        .await;
-                        break 'story_loop;
-                    }
+                    // No checkpoint.save() needed - the last commit is already the checkpoint
 
                     // Retry loop for this story
                     let mut retry_count = 0;
@@ -200,13 +206,12 @@ impl Orchestrator {
                                 match result {
                                     AgentResult::Complete => {
                                         // Story completed successfully
-                                        // Drop checkpoint and continue to next story (async)
-                                        if let Err(e) = self.checkpoint.drop(&story_id).await {
-                                            // Log but don't fail - checkpoint cleanup
-                                            // will handle orphaned stashes
+                                        // Create checkpoint commit for this story
+                                        if let Err(e) = self.checkpoint.commit_checkpoint(&story_id).await {
+                                            // Log but don't fail - changes are still in working dir
                                             self.emit(LoopEvent::Error {
                                                 message: format!(
-                                                    "Warning: Failed to drop checkpoint for story {}: {}",
+                                                    "Warning: Failed to create checkpoint for story {}: {}",
                                                     story_id, e
                                                 ),
                                             })
@@ -230,8 +235,8 @@ impl Orchestrator {
                                             break 'story_loop;
                                         }
 
-                                        // Revert to checkpoint and retry (async)
-                                        if let Err(e) = self.checkpoint.revert(&story_id).await {
+                                        // Revert to checkpoint (reset --hard HEAD)
+                                        if let Err(e) = self.checkpoint.revert().await {
                                             self.emit(LoopEvent::Error {
                                                 message: format!(
                                                     "Failed to revert checkpoint for story {}: {}",
@@ -264,8 +269,8 @@ impl Orchestrator {
                                             break 'story_loop;
                                         }
 
-                                        // Revert to checkpoint and retry (async)
-                                        if let Err(e) = self.checkpoint.revert(&story_id).await {
+                                        // Revert to checkpoint (reset --hard HEAD)
+                                        if let Err(e) = self.checkpoint.revert().await {
                                             self.emit(LoopEvent::Error {
                                                 message: format!(
                                                     "Failed to revert checkpoint for story {}: {}",
@@ -296,8 +301,8 @@ impl Orchestrator {
                                     break 'story_loop;
                                 }
 
-                                // Revert to checkpoint and retry (async)
-                                if let Err(revert_err) = self.checkpoint.revert(&story_id).await {
+                                // Revert to checkpoint (reset --hard HEAD)
+                                if let Err(revert_err) = self.checkpoint.revert().await {
                                     self.emit(LoopEvent::Error {
                                         message: format!(
                                             "Failed to revert checkpoint for story {}: {}",
@@ -321,14 +326,31 @@ impl Orchestrator {
             }
         }
 
-        // Clean up all checkpoints on loop exit (success or failure) - async
-        let _ = self.checkpoint.cleanup().await;
+        // Don't cleanup here - let TUI show completion screen with options
+        // The TUI will call checkpoint.cleanup() with the user's choice
 
         // Emit completion event
         self.emit(LoopEvent::Complete).await;
         state.running = false;
 
         Ok(state)
+    }
+
+    /// Performs cleanup with the given completion option.
+    ///
+    /// Called by TUI after user selects cleanup or keep option.
+    pub async fn cleanup(&self, option: CompletionOption) -> Result<()> {
+        self.checkpoint.cleanup(option).await
+    }
+
+    /// Returns the original branch name, if available.
+    pub fn original_branch(&self) -> Option<&str> {
+        self.checkpoint.original_branch()
+    }
+
+    /// Returns the ralph branch name.
+    pub fn ralph_branch(&self) -> String {
+        format!("ralph/{}", self.change_name)
     }
 
     /// Emit a loop event.
