@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use crate::agent::StreamEvent;
-use crate::ralph_loop::{LoopEvent, LoopState};
+use crate::ralph_loop::{LoopEvent, LoopState, DEFAULT_MAX_RETRIES};
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use crate::spec::SpecAdapter;
 use crate::spec::{Scenario, Story};
@@ -107,6 +107,8 @@ pub struct App {
     pub loop_stop_flag: Option<Arc<AtomicBool>>,
     /// Handle to the orchestrator thread.
     pub loop_thread: Option<JoinHandle<()>>,
+    /// Maximum number of retries per story (CLI: --max-retries).
+    pub max_retries: usize,
 }
 
 impl App {
@@ -138,7 +140,14 @@ impl App {
             loop_event_rx: None,
             loop_stop_flag: None,
             loop_thread: None,
+            max_retries: DEFAULT_MAX_RETRIES,
         }
+    }
+
+    /// Sets the maximum number of retries per story.
+    pub fn with_max_retries(mut self, max_retries: usize) -> Self {
+        self.max_retries = max_retries;
+        self
     }
 
     /// Starts the loop execution for the selected change.
@@ -172,6 +181,7 @@ impl App {
 
             // Spawn orchestrator in background thread with tokio runtime
             let change_name = name.clone();
+            let max_retries = self.max_retries;
             let handle = std::thread::spawn(move || {
                 // Create tokio runtime for async orchestrator
                 let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -192,7 +202,8 @@ impl App {
 
                     // Create and run orchestrator
                     let agent = Box::new(ClaudeAgent::new());
-                    let mut orchestrator = Orchestrator::new(&change_name, agent, tokio_tx);
+                    let mut orchestrator =
+                        Orchestrator::new(&change_name, agent, tokio_tx, max_retries);
 
                     // Set the stop flag on the orchestrator
                     let orch_stop = orchestrator.stop_handle();
@@ -1508,5 +1519,17 @@ mod tests {
         // Both scroll positions preserved
         assert_eq!(app.result_tasks_scroll, 10);
         assert_eq!(app.result_scroll_offset, 5);
+    }
+
+    #[test]
+    fn with_max_retries_sets_value() {
+        let app = App::new().with_max_retries(5);
+        assert_eq!(app.max_retries, 5);
+    }
+
+    #[test]
+    fn default_max_retries_is_default_constant() {
+        let app = App::new();
+        assert_eq!(app.max_retries, DEFAULT_MAX_RETRIES);
     }
 }

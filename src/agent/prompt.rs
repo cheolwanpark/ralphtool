@@ -32,7 +32,30 @@ impl<'a> PromptBuilder<'a> {
     /// - All scenarios with instruction to focus on relevant ones
     /// - Spec tool usage instructions from adapter
     /// - Completion signal instructions (`<promise>COMPLETE</promise>`)
+    ///
+    /// This is a convenience wrapper around [`for_story_with_retry_context`] with no retry context.
+    #[allow(dead_code)] // Public API - used by tests and external callers
     pub fn for_story(&self, story_id: &str) -> Result<Prompt> {
+        self.for_story_with_retry_context(story_id, None)
+    }
+
+    /// Generate a prompt for working on a specific story with optional retry context.
+    ///
+    /// When `retry_reason` is `Some`, includes a "Previous Attempt Failed" section
+    /// explaining why the last attempt failed, helping the agent avoid the same issues.
+    ///
+    /// The prompt includes:
+    /// - Story ID and title
+    /// - Previous attempt failure reason (if retrying with explicit FAILED signal)
+    /// - Tasks belonging to this story
+    /// - All scenarios with instruction to focus on relevant ones
+    /// - Spec tool usage instructions from adapter
+    /// - Completion and failure signal instructions
+    pub fn for_story_with_retry_context(
+        &self,
+        story_id: &str,
+        retry_reason: Option<String>,
+    ) -> Result<Prompt> {
         let context = self.adapter.context(story_id)?;
         let all_scenarios = self.adapter.scenarios()?;
 
@@ -43,6 +66,20 @@ impl<'a> PromptBuilder<'a> {
             "# Working on Story {}: {}\n",
             context.story.id, context.story.title
         ));
+
+        // Previous Attempt Failed section (only on retries with explicit FAILED signal)
+        if let Some(reason) = retry_reason {
+            sections.push("## Previous Attempt Failed\n".to_string());
+            sections.push(format!(
+                "The previous attempt failed with the following reason:\n> {}\n",
+                reason
+            ));
+            sections.push(
+                "Please address this issue in your current attempt. \
+                 Review the failure reason and try a different approach if needed.\n"
+                    .to_string(),
+            );
+        }
 
         // Story scope instruction
         sections.push("## Your Task\n".to_string());
@@ -80,7 +117,15 @@ impl<'a> PromptBuilder<'a> {
         sections.push("1. Run verification commands (cargo check, cargo clippy, cargo test)".to_string());
         sections.push("2. If all verification passes, output: `<promise>COMPLETE</promise>`".to_string());
         sections.push("3. If verification fails, fix issues and re-verify before signaling\n".to_string());
-        sections.push("**Important**: Only output `<promise>COMPLETE</promise>` after ALL tasks in this story are done AND verification passes.".to_string());
+        sections.push("**Important**: Only output `<promise>COMPLETE</promise>` after ALL tasks in this story are done AND verification passes.\n".to_string());
+
+        // Failure signal instructions
+        sections.push("## Failure Signal\n".to_string());
+        sections.push("If you cannot complete the story after multiple attempts:\n".to_string());
+        sections.push("- Output: `<promise>FAILED: {reason}</promise>` where `{reason}` explains why completion is not possible".to_string());
+        sections.push("- The orchestrator will revert changes, include your reason in the next retry prompt, and try again".to_string());
+        sections.push("- Use this for: unresolvable test failures, missing dependencies, unclear requirements, blocked tasks\n".to_string());
+        sections.push("**Note**: Prefer fixing issues and completing. Only use FAILED when you truly cannot proceed.".to_string());
 
         Ok(Prompt {
             system: String::new(),
@@ -298,5 +343,81 @@ mod tests {
 
         assert!(prompt.user.contains("Story 1 only"));
         assert!(prompt.user.contains("Do not work on other stories"));
+    }
+
+    #[test]
+    fn for_story_includes_failure_signal_instructions() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        let builder = PromptBuilder::new(&adapter, "test-change");
+        let prompt = builder.for_story("1").unwrap();
+
+        assert!(prompt.user.contains("## Failure Signal"));
+        assert!(prompt.user.contains("<promise>FAILED:"));
+        assert!(prompt.user.contains("</promise>"));
+    }
+
+    #[test]
+    fn for_story_with_retry_context_includes_failure_reason() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        let builder = PromptBuilder::new(&adapter, "test-change");
+        let prompt = builder
+            .for_story_with_retry_context("1", Some("Tests failed due to missing mock".to_string()))
+            .unwrap();
+
+        assert!(prompt.user.contains("## Previous Attempt Failed"));
+        assert!(prompt.user.contains("Tests failed due to missing mock"));
+        assert!(prompt.user.contains("address this issue"));
+    }
+
+    #[test]
+    fn for_story_with_retry_context_none_has_no_failure_section() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        let builder = PromptBuilder::new(&adapter, "test-change");
+        let prompt = builder.for_story_with_retry_context("1", None).unwrap();
+
+        assert!(!prompt.user.contains("## Previous Attempt Failed"));
+    }
+
+    #[test]
+    fn for_story_delegates_to_for_story_with_retry_context() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        let builder = PromptBuilder::new(&adapter, "test-change");
+        let prompt1 = builder.for_story("1").unwrap();
+        let prompt2 = builder.for_story_with_retry_context("1", None).unwrap();
+
+        // Both should produce the same output
+        assert_eq!(prompt1.user, prompt2.user);
     }
 }

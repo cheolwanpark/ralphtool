@@ -6,7 +6,7 @@
 
 mod orchestrator;
 
-pub use orchestrator::Orchestrator;
+pub use orchestrator::{Orchestrator, DEFAULT_MAX_RETRIES};
 
 use crate::agent::StreamEvent;
 use tokio::sync::mpsc;

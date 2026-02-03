@@ -1,12 +1,4 @@
-## Purpose
-
-Prompt generation for coding agents. Generates a story-specific prompt that tells the agent how to work on one story of an OpenSpec change.
-
-## Implementation
-
-Located in `src/agent/prompt.rs`. The prompt generation creates a markdown prompt from the spec adapter's context for a specific story.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Agent prompt template
 The system SHALL generate a story-specific prompt that tells the agent how to work on one story of a change, including completion and failure signal instructions.
@@ -53,17 +45,7 @@ The system SHALL generate a story-specific prompt that tells the agent how to wo
 - **THEN** the prompt SHALL include spec tool usage instructions from the adapter's `tool_prompt()`
 - **AND** these instructions explain how to mark tasks complete in tasks.md
 
-### Requirement: Prompt is self-contained
-The agent prompt SHALL contain all information needed to work on the story without requiring environment variables or special CLI commands.
-
-#### Scenario: No environment variables required
-- **WHEN** an agent receives the prompt
-- **THEN** the agent SHALL be able to complete all work using only file operations
-
-#### Scenario: Story-scoped work
-- **WHEN** an agent receives the prompt
-- **THEN** the agent works only on the specified story
-- **AND** does not proceed to the next story (that's the orchestrator's job)
+## ADDED Requirements
 
 ### Requirement: Retry context in prompt
 The system SHALL include previous failure information in retry prompts when available.

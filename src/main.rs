@@ -1,4 +1,5 @@
 mod agent;
+mod checkpoint;
 mod ralph_loop;
 mod app;
 mod error;
@@ -10,6 +11,7 @@ use std::io;
 use std::panic;
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -19,14 +21,25 @@ use ratatui::prelude::*;
 
 use app::App;
 use event::handle_events;
+use ralph_loop::DEFAULT_MAX_RETRIES;
 use ui::render;
 
-fn main() -> Result<()> {
-    // Run TUI mode
-    run_tui()
+/// Ralph Loop - Autonomous AI development orchestrator
+#[derive(Parser, Debug)]
+#[command(name = "ralphtool")]
+#[command(about = "TUI for running the Ralph Loop with OpenSpec changes")]
+struct Cli {
+    /// Maximum number of retries per story when agent fails
+    #[arg(long, default_value_t = DEFAULT_MAX_RETRIES)]
+    max_retries: usize,
 }
 
-fn run_tui() -> Result<()> {
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    run_tui(cli.max_retries)
+}
+
+fn run_tui(max_retries: usize) -> Result<()> {
     // Check if openspec CLI is available
     if let Err(e) = check_openspec_cli() {
         eprintln!("Error: {}", e);
@@ -38,7 +51,7 @@ fn run_tui() -> Result<()> {
 
     let mut terminal = init_terminal()?;
 
-    let mut app = App::new();
+    let mut app = App::new().with_max_retries(max_retries);
 
     // Load available changes on startup
     if let Err(e) = app.load_changes() {
