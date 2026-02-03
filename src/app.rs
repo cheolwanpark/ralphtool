@@ -907,6 +907,11 @@ impl App {
         match self.loop_tab {
             LoopTab::Info => self.loop_info_scroll = self.loop_info_scroll.saturating_sub(1),
             LoopTab::Agent => {
+                // Sync scroll position to max_scroll when auto_scroll is true,
+                // so we scroll from the actual viewport position, not a stale value
+                if self.loop_agent_auto_scroll {
+                    self.loop_agent_scroll = self.loop_agent_max_scroll;
+                }
                 self.loop_agent_scroll = self.loop_agent_scroll.saturating_sub(1);
                 self.loop_agent_auto_scroll = false;
             }
@@ -919,6 +924,10 @@ impl App {
         match self.loop_tab {
             LoopTab::Info => self.loop_info_scroll = self.loop_info_scroll.saturating_add(1),
             LoopTab::Agent => {
+                // When auto_scroll is true, we're already at the bottom - no-op
+                if self.loop_agent_auto_scroll {
+                    return;
+                }
                 self.loop_agent_scroll = self.loop_agent_scroll.saturating_add(1);
                 // Re-enable auto-scroll when reaching bottom
                 if self.loop_agent_scroll >= self.loop_agent_max_scroll {
@@ -1440,8 +1449,9 @@ mod tests {
         assert_eq!(app.loop_info_scroll, 2);
         assert_eq!(app.loop_agent_scroll, 0);
 
-        // Switch to Agent tab
+        // Switch to Agent tab - must disable auto_scroll for scroll_down to work
         app.switch_loop_tab();
+        app.loop_agent_auto_scroll = false;
         app.loop_scroll_down();
         assert_eq!(app.loop_info_scroll, 2);
         assert_eq!(app.loop_agent_scroll, 1);
@@ -1456,11 +1466,13 @@ mod tests {
         let mut app = App::new();
         app.loop_tab = LoopTab::Agent;
         app.loop_agent_auto_scroll = true;
-        app.loop_agent_scroll = 5;
+        app.loop_agent_scroll = 0; // Stale value - will be synced to max_scroll
+        app.loop_agent_max_scroll = 10;
 
         app.loop_scroll_up();
 
-        assert_eq!(app.loop_agent_scroll, 4);
+        // Should sync to max_scroll (10) then decrement to 9
+        assert_eq!(app.loop_agent_scroll, 9);
         assert!(!app.loop_agent_auto_scroll);
     }
 
@@ -1902,5 +1914,43 @@ mod tests {
 
         let hint = app.force_quit_hint();
         assert!(hint.is_none());
+    }
+
+    // ==================== Scroll Sync Tests ====================
+
+    #[test]
+    fn scroll_up_from_auto_scroll_mode_syncs_position_correctly() {
+        // GIVEN auto_scroll is true and loop_agent_scroll has a stale value
+        let mut app = App::new();
+        app.loop_tab = LoopTab::Agent;
+        app.loop_agent_auto_scroll = true;
+        app.loop_agent_scroll = 0; // Stale value (not matching viewport)
+        app.loop_agent_max_scroll = 50; // Viewport is actually at position 50
+
+        // WHEN user scrolls up
+        app.loop_scroll_up();
+
+        // THEN loop_agent_scroll is synced to max_scroll (50) before decrementing to 49
+        assert_eq!(app.loop_agent_scroll, 49);
+        // AND auto_scroll is disabled since user is manually scrolling
+        assert!(!app.loop_agent_auto_scroll);
+    }
+
+    #[test]
+    fn scroll_down_is_noop_when_auto_scroll_is_true() {
+        // GIVEN auto_scroll is true (already at bottom)
+        let mut app = App::new();
+        app.loop_tab = LoopTab::Agent;
+        app.loop_agent_auto_scroll = true;
+        app.loop_agent_scroll = 0; // This value doesn't matter when auto_scroll is true
+        app.loop_agent_max_scroll = 50;
+
+        // WHEN user scrolls down
+        app.loop_scroll_down();
+
+        // THEN no scroll operation is performed (scroll position unchanged)
+        assert_eq!(app.loop_agent_scroll, 0);
+        // AND auto_scroll remains true
+        assert!(app.loop_agent_auto_scroll);
     }
 }

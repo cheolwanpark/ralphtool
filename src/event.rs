@@ -301,6 +301,7 @@ mod tests {
 
         let mut app = App::new();
         app.loop_tab = LoopTab::Agent;
+        app.loop_agent_auto_scroll = false; // Must disable auto_scroll for scroll_down to work
         app.loop_agent_scroll = 3;
 
         handle_loop_mouse(&mut app, create_scroll_down_event());
