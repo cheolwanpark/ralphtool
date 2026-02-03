@@ -4,6 +4,7 @@
 //! The simplified orchestrator spawns a single agent with a self-contained prompt.
 //! The agent reads files directly and marks tasks complete by editing tasks.md.
 
+pub mod learnings;
 mod orchestrator;
 
 pub use orchestrator::{Orchestrator, DEFAULT_MAX_RETRIES};

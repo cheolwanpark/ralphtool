@@ -6,13 +6,15 @@
 
 use super::Prompt;
 use crate::error::Result;
+use crate::ralph_loop::learnings::learnings_path;
 use crate::spec::{Scenario, SpecAdapter, Story};
 
 /// Builder for generating story-specific agent prompts.
 pub struct PromptBuilder<'a> {
     adapter: &'a dyn SpecAdapter,
-    #[allow(dead_code)]
     change_name: String,
+    /// Optional learnings content to include in the prompt.
+    learnings_content: Option<String>,
 }
 
 impl<'a> PromptBuilder<'a> {
@@ -21,7 +23,19 @@ impl<'a> PromptBuilder<'a> {
         Self {
             adapter,
             change_name: change_name.to_string(),
+            learnings_content: None,
         }
+    }
+
+    /// Set optional learnings content to include in prompts.
+    ///
+    /// When set, prompts will include a "Shared Learnings" section with:
+    /// - Instructions on what to record (discoveries, decisions, gotchas)
+    /// - The path to the learnings file
+    /// - The existing learnings content
+    pub fn with_learnings(mut self, learnings_content: Option<String>) -> Self {
+        self.learnings_content = learnings_content;
+        self
     }
 
     /// Generate a prompt for working on a specific story.
@@ -98,6 +112,23 @@ impl<'a> PromptBuilder<'a> {
         sections.push(
             "Read the proposal and design to understand the change:\n- Proposal: motivation and scope\n- Design: technical decisions\n".to_string()
         );
+
+        // Shared Learnings section (only when learnings content exists)
+        if let Some(ref content) = self.learnings_content {
+            sections.push("## Shared Learnings\n".to_string());
+            sections.push(
+                "Previous stories have recorded the following learnings. \
+                 Use this information to avoid repeating work and maintain consistency.\n"
+                    .to_string(),
+            );
+            sections.push(format!(
+                "**What to record**: As you work, add discoveries, decisions, and gotchas \
+                 to the learnings file at `{}`.\n",
+                learnings_path(&self.change_name).display()
+            ));
+            sections.push("### Current Learnings\n".to_string());
+            sections.push(format!("```markdown\n{}\n```\n", content));
+        }
 
         // Scenarios
         sections.push("## Verification Scenarios\n".to_string());
@@ -419,5 +450,89 @@ mod tests {
 
         // Both should produce the same output
         assert_eq!(prompt1.user, prompt2.user);
+    }
+
+    #[test]
+    fn for_story_with_learnings_includes_learnings_section() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        let learnings = "## Story 1 Learnings\n- Discovered pattern X\n- Decided on approach Y";
+        let builder = PromptBuilder::new(&adapter, "test-change")
+            .with_learnings(Some(learnings.to_string()));
+        let prompt = builder.for_story("1").unwrap();
+
+        assert!(prompt.user.contains("## Shared Learnings"));
+        assert!(prompt.user.contains("discoveries, decisions, and gotchas"));
+        assert!(prompt.user.contains("test-change-learnings.md"));
+        assert!(prompt.user.contains("Discovered pattern X"));
+        assert!(prompt.user.contains("Decided on approach Y"));
+    }
+
+    #[test]
+    fn for_story_without_learnings_omits_learnings_section() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        let builder = PromptBuilder::new(&adapter, "test-change")
+            .with_learnings(None);
+        let prompt = builder.for_story("1").unwrap();
+
+        assert!(!prompt.user.contains("## Shared Learnings"));
+        assert!(!prompt.user.contains("learnings file"));
+    }
+
+    #[test]
+    fn for_story_default_has_no_learnings() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        // Default builder (without calling with_learnings)
+        let builder = PromptBuilder::new(&adapter, "test-change");
+        let prompt = builder.for_story("1").unwrap();
+
+        assert!(!prompt.user.contains("## Shared Learnings"));
+    }
+
+    #[test]
+    fn learnings_section_appears_before_verification_scenarios() {
+        let adapter = MockAdapter {
+            story: Story {
+                id: "1".to_string(),
+                title: "Test Story".to_string(),
+                tasks: vec![],
+            },
+            scenarios: vec![],
+        };
+
+        let learnings = "## Some Learnings";
+        let builder = PromptBuilder::new(&adapter, "test-change")
+            .with_learnings(Some(learnings.to_string()));
+        let prompt = builder.for_story("1").unwrap();
+
+        // Find positions of both sections
+        let learnings_pos = prompt.user.find("## Shared Learnings").unwrap();
+        let scenarios_pos = prompt.user.find("## Verification Scenarios").unwrap();
+
+        // Learnings should appear before scenarios
+        assert!(learnings_pos < scenarios_pos);
     }
 }

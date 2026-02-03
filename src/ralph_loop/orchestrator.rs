@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::learnings::{ensure_learnings_file, read_learnings};
 use super::{LoopEvent, LoopEventSender, LoopState, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::agent::{CodingAgent, PromptBuilder, StreamEvent};
 use crate::checkpoint::Checkpoint;
@@ -113,6 +114,15 @@ impl Orchestrator {
             return Ok(state);
         }
 
+        // Ensure learnings file exists (creates if missing, preserves existing)
+        if let Err(e) = ensure_learnings_file(&self.change_name) {
+            self.emit(LoopEvent::Error {
+                message: format!("Failed to ensure learnings file: {}", e),
+            })
+            .await;
+            // Non-fatal: continue without learnings if file creation fails
+        }
+
         // Story iteration loop
         'story_loop: loop {
             // Check for stop request
@@ -165,9 +175,13 @@ impl Orchestrator {
                     let story_title = story.title.clone();
 
                     'retry_loop: loop {
-                        // Generate story-specific prompt (with retry context if available)
+                        // Read learnings content for prompt (if available)
+                        let learnings_content = read_learnings(&self.change_name)?;
+
+                        // Generate story-specific prompt (with retry context and learnings if available)
                         let prompt_builder =
-                            PromptBuilder::new(adapter.as_ref(), &self.change_name);
+                            PromptBuilder::new(adapter.as_ref(), &self.change_name)
+                                .with_learnings(learnings_content);
                         let prompt =
                             prompt_builder.for_story_with_retry_context(&story_id, retry_reason.take())?;
 
