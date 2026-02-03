@@ -8,6 +8,9 @@ mod orchestrator;
 
 pub use orchestrator::{Orchestrator, DEFAULT_MAX_RETRIES};
 
+/// Default timeout in seconds for external commands (git, openspec).
+pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 30;
+
 use crate::agent::StreamEvent;
 use tokio::sync::mpsc;
 

@@ -10,8 +10,9 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
-use super::{LoopEvent, LoopEventSender, LoopState};
+use super::{LoopEvent, LoopEventSender, LoopState, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::agent::{CodingAgent, PromptBuilder, StreamEvent};
 use crate::checkpoint::Checkpoint;
 use crate::error::Result;
@@ -46,6 +47,9 @@ pub struct Orchestrator {
 
     /// Maximum number of retries per story.
     max_retries: usize,
+
+    /// Timeout for external commands (git, openspec).
+    command_timeout: Duration,
 }
 
 impl Orchestrator {
@@ -56,14 +60,24 @@ impl Orchestrator {
         event_tx: LoopEventSender,
         max_retries: usize,
     ) -> Self {
+        let timeout = Duration::from_secs(DEFAULT_COMMAND_TIMEOUT_SECS);
         Self {
             change_name: change_name.to_string(),
             agent,
             event_tx,
             stop_flag: Arc::new(AtomicBool::new(false)),
-            checkpoint: Checkpoint::new(change_name),
+            checkpoint: Checkpoint::with_timeout(change_name, timeout),
             max_retries,
+            command_timeout: timeout,
         }
+    }
+
+    /// Sets the timeout for external commands.
+    pub fn with_command_timeout(mut self, timeout_secs: u64) -> Self {
+        let timeout = Duration::from_secs(timeout_secs);
+        self.command_timeout = timeout;
+        self.checkpoint = Checkpoint::with_timeout(&self.change_name, timeout);
+        self
     }
 
     /// Get a handle to stop the loop.
@@ -87,14 +101,14 @@ impl Orchestrator {
             // Check for stop request
             if self.stop_flag.load(Ordering::Relaxed) {
                 state.running = false;
-                // Clean up checkpoints before exit
-                let _ = self.checkpoint.cleanup();
+                // Clean up checkpoints before exit (async)
+                let _ = self.checkpoint.cleanup().await;
                 self.emit(LoopEvent::Complete).await;
                 return Ok(state);
             }
 
-            // Refresh adapter to get latest story state
-            let adapter = spec::create_adapter(&self.change_name)?;
+            // Refresh adapter to get latest story state (async with timeout)
+            let adapter = spec::create_adapter_async_with_timeout(&self.change_name, self.command_timeout).await?;
             let stories = adapter.stories()?;
 
             // Update state with story counts
@@ -126,8 +140,8 @@ impl Orchestrator {
                     })
                     .await;
 
-                    // Save checkpoint before agent spawn
-                    if let Err(e) = self.checkpoint.save(&story.id) {
+                    // Save checkpoint before agent spawn (async)
+                    if let Err(e) = self.checkpoint.save(&story.id).await {
                         self.emit(LoopEvent::Error {
                             message: format!(
                                 "Failed to save checkpoint for story {}: {}",
@@ -186,8 +200,8 @@ impl Orchestrator {
                                 match result {
                                     AgentResult::Complete => {
                                         // Story completed successfully
-                                        // Drop checkpoint and continue to next story
-                                        if let Err(e) = self.checkpoint.drop(&story_id) {
+                                        // Drop checkpoint and continue to next story (async)
+                                        if let Err(e) = self.checkpoint.drop(&story_id).await {
                                             // Log but don't fail - checkpoint cleanup
                                             // will handle orphaned stashes
                                             self.emit(LoopEvent::Error {
@@ -216,8 +230,8 @@ impl Orchestrator {
                                             break 'story_loop;
                                         }
 
-                                        // Revert to checkpoint and retry
-                                        if let Err(e) = self.checkpoint.revert(&story_id) {
+                                        // Revert to checkpoint and retry (async)
+                                        if let Err(e) = self.checkpoint.revert(&story_id).await {
                                             self.emit(LoopEvent::Error {
                                                 message: format!(
                                                     "Failed to revert checkpoint for story {}: {}",
@@ -250,8 +264,8 @@ impl Orchestrator {
                                             break 'story_loop;
                                         }
 
-                                        // Revert to checkpoint and retry
-                                        if let Err(e) = self.checkpoint.revert(&story_id) {
+                                        // Revert to checkpoint and retry (async)
+                                        if let Err(e) = self.checkpoint.revert(&story_id).await {
                                             self.emit(LoopEvent::Error {
                                                 message: format!(
                                                     "Failed to revert checkpoint for story {}: {}",
@@ -282,8 +296,8 @@ impl Orchestrator {
                                     break 'story_loop;
                                 }
 
-                                // Revert to checkpoint and retry
-                                if let Err(revert_err) = self.checkpoint.revert(&story_id) {
+                                // Revert to checkpoint and retry (async)
+                                if let Err(revert_err) = self.checkpoint.revert(&story_id).await {
                                     self.emit(LoopEvent::Error {
                                         message: format!(
                                             "Failed to revert checkpoint for story {}: {}",
@@ -307,8 +321,8 @@ impl Orchestrator {
             }
         }
 
-        // Clean up all checkpoints on loop exit (success or failure)
-        let _ = self.checkpoint.cleanup();
+        // Clean up all checkpoints on loop exit (success or failure) - async
+        let _ = self.checkpoint.cleanup().await;
 
         // Emit completion event
         self.emit(LoopEvent::Complete).await;
@@ -739,5 +753,67 @@ mod tests {
             AgentResult::NoSignal,
             AgentResult::Failed("".to_string())
         );
+    }
+
+    // ==================== Async and Timeout Tests ====================
+
+    #[test]
+    fn orchestrator_default_timeout_is_30_seconds() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let orchestrator = Orchestrator::new(
+            "test-change",
+            Box::new(MockAgent),
+            tx,
+            DEFAULT_MAX_RETRIES,
+        );
+
+        assert_eq!(orchestrator.command_timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn orchestrator_with_command_timeout_sets_timeout() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let orchestrator = Orchestrator::new(
+            "test-change",
+            Box::new(MockAgent),
+            tx,
+            DEFAULT_MAX_RETRIES,
+        )
+        .with_command_timeout(60);
+
+        assert_eq!(orchestrator.command_timeout, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn orchestrator_short_timeout_for_hung_commands() {
+        // Verify that setting a short timeout is supported
+        // This would be used when commands are known to be quick
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let orchestrator = Orchestrator::new(
+            "test-change",
+            Box::new(MockAgent),
+            tx,
+            DEFAULT_MAX_RETRIES,
+        )
+        .with_command_timeout(5); // 5 seconds
+
+        assert_eq!(orchestrator.command_timeout, Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn orchestrator_timeout_config_accessible_in_async_context() {
+        // Verify that orchestrator's timeout config can be accessed in async context
+        // This timeout is used for all async checkpoint and spec adapter operations
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let timeout = Duration::from_secs(45);
+        let orchestrator = Orchestrator::new(
+            "test-change",
+            Box::new(MockAgent),
+            tx,
+            DEFAULT_MAX_RETRIES,
+        )
+        .with_command_timeout(45);
+
+        assert_eq!(orchestrator.command_timeout, timeout);
     }
 }

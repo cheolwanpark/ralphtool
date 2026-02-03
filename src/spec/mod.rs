@@ -13,6 +13,8 @@ mod types;
 
 pub use types::*;
 
+use std::time::Duration;
+
 use crate::error::Result;
 
 /// Unified trait for spec system adapters.
@@ -52,7 +54,28 @@ pub trait SpecAdapter {
 ///
 /// Currently only supports OpenSpec changes. When SpecKit support is added,
 /// this factory can detect the spec system type and return the appropriate adapter.
+#[allow(dead_code)]
 pub fn create_adapter(change_name: &str) -> Result<Box<dyn SpecAdapter>> {
     let adapter = openspec::OpenSpecAdapter::new(change_name)?;
+    Ok(Box::new(adapter))
+}
+
+/// Creates a spec adapter for the given change (async version).
+///
+/// Uses async command execution to avoid blocking tokio worker threads.
+#[allow(dead_code)]
+pub async fn create_adapter_async(change_name: &str) -> Result<Box<dyn SpecAdapter>> {
+    let adapter = openspec::OpenSpecAdapter::new_async(change_name).await?;
+    Ok(Box::new(adapter))
+}
+
+/// Creates a spec adapter for the given change with configurable timeout (async version).
+///
+/// Uses async command execution to avoid blocking tokio worker threads.
+pub async fn create_adapter_async_with_timeout(
+    change_name: &str,
+    timeout: Duration,
+) -> Result<Box<dyn SpecAdapter>> {
+    let adapter = openspec::OpenSpecAdapter::new_async_with_timeout(change_name, timeout).await?;
     Ok(Box::new(adapter))
 }

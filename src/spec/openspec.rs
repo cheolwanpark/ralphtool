@@ -2,13 +2,18 @@
 //!
 //! This adapter reads completed OpenSpec changes and converts them
 //! to spec domain types (Story, Task, Scenario).
+//!
+//! Provides both sync and async methods. Async methods use `async_cmd`
+//! to avoid blocking tokio worker threads.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use serde::Deserialize;
 
+use crate::async_cmd;
 use crate::error::{Error, Result};
 use crate::spec::{Context, Scenario, SpecAdapter, Story, Task, VerifyCommands};
 
@@ -153,6 +158,83 @@ impl OpenSpecAdapter {
 
         Ok(scenarios)
     }
+
+    // =========================================================================
+    // Async Methods
+    // =========================================================================
+
+    /// Creates a new OpenSpecAdapter for the given change (async version).
+    ///
+    /// Uses async command execution to avoid blocking tokio worker threads.
+    #[allow(dead_code)]
+    pub async fn new_async(change_name: &str) -> Result<Self> {
+        Self::new_async_with_timeout(change_name, async_cmd::DEFAULT_TIMEOUT).await
+    }
+
+    /// Creates a new OpenSpecAdapter with configurable timeout.
+    pub async fn new_async_with_timeout(change_name: &str, timeout: Duration) -> Result<Self> {
+        // Verify the change exists by getting its status
+        Self::get_status_async_with_timeout(change_name, timeout).await?;
+
+        // Determine change directory (this is just path operations, no I/O needed async)
+        let change_dir = Self::get_change_dir(change_name)?;
+
+        // Parse tasks.md (file I/O is fast enough to do sync)
+        let tasks_path = change_dir.join("tasks.md");
+        let stories = if tasks_path.exists() {
+            Self::parse_tasks_file(&tasks_path)?
+        } else {
+            Vec::new()
+        };
+
+        // Parse specs
+        let specs_dir = change_dir.join("specs");
+        let scenarios = if specs_dir.exists() {
+            Self::parse_specs_dir(&specs_dir)?
+        } else {
+            Vec::new()
+        };
+
+        Ok(Self {
+            change_name: change_name.to_string(),
+            change_dir,
+            stories,
+            scenarios,
+        })
+    }
+
+    /// Lists all available changes (async version).
+    #[allow(dead_code)]
+    pub async fn list_changes_async() -> Result<Vec<ChangeInfo>> {
+        let output = run_openspec_command_async(&["list", "--json"]).await?;
+        let response: ListResponse = serde_json::from_str(&output)?;
+        Ok(response.changes)
+    }
+
+    /// Checks if a change is complete (async version).
+    #[allow(dead_code)]
+    pub async fn is_complete_async(change_name: &str) -> Result<bool> {
+        let status = Self::get_status_async(change_name).await?;
+        Ok(status.is_complete)
+    }
+
+    #[allow(dead_code)]
+    async fn get_status_async(change_name: &str) -> Result<StatusResponse> {
+        Self::get_status_async_with_timeout(change_name, async_cmd::DEFAULT_TIMEOUT).await
+    }
+
+    async fn get_status_async_with_timeout(
+        change_name: &str,
+        timeout: Duration,
+    ) -> Result<StatusResponse> {
+        let output = run_openspec_command_async_with_timeout(
+            &["status", "--change", change_name, "--json"],
+            timeout,
+        )
+        .await?;
+        let response: StatusResponse = serde_json::from_str(&output)?;
+        Ok(response)
+    }
 }
 
 /// Runs an openspec CLI command and returns stdout.
@@ -176,6 +258,22 @@ fn run_openspec_command(args: &[&str]) -> Result<String> {
     let stdout = String::from_utf8(output.stdout)
         .map_err(|e| Error::Parse(format!("Invalid UTF-8 in command output: {}", e)))?;
     Ok(stdout)
+}
+
+/// Runs an openspec CLI command asynchronously and returns stdout.
+///
+/// Uses `async_cmd` to avoid blocking tokio worker threads.
+#[allow(dead_code)]
+async fn run_openspec_command_async(args: &[&str]) -> Result<String> {
+    run_openspec_command_async_with_timeout(args, async_cmd::DEFAULT_TIMEOUT).await
+}
+
+/// Runs an openspec CLI command asynchronously with configurable timeout.
+async fn run_openspec_command_async_with_timeout(
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String> {
+    async_cmd::run_stdout_with_timeout("openspec", args, timeout).await
 }
 
 /// Parses tasks.md content into Story hierarchy.

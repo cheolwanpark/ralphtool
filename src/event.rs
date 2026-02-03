@@ -66,16 +66,31 @@ fn handle_preview_events(app: &mut App, code: KeyCode, modifiers: KeyModifiers) 
 }
 
 fn handle_loop_events(app: &mut App, code: KeyCode) {
+    use crate::app::ForceQuitAction;
+
     match code {
-        // 'q' sets stop flag - the loop will stop after current agent completes
+        // 'q' handles force-quit mechanism with tracking of consecutive presses
         KeyCode::Char('q') | KeyCode::Char('Q') => {
-            if app.loop_state.running {
-                // Request stop and wait for graceful shutdown
-                app.request_loop_stop();
-            } else {
-                // Loop already stopped, can navigate away
-                app.cleanup_loop();
-                app.back_to_selection();
+            match app.handle_quit_press() {
+                ForceQuitAction::Graceful => {
+                    // First press: graceful stop requested
+                    // UI will show hint on subsequent presses
+                }
+                ForceQuitAction::Hint => {
+                    // Second press: hint already shown via force_quit_hint()
+                    // No additional action needed
+                }
+                ForceQuitAction::ForceQuit => {
+                    // Third press: force-quit immediately
+                    // Cleanup was already attempted in handle_quit_press()
+                    std::process::exit(1);
+                }
+                ForceQuitAction::NavigateBack => {
+                    // Loop already stopped, can navigate away
+                    app.reset_quit_counter();
+                    app.cleanup_loop();
+                    app.back_to_selection();
+                }
             }
         }
         // Story navigation

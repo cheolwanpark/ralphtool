@@ -3,9 +3,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Instant;
 
 use crate::agent::StreamEvent;
-use crate::ralph_loop::{LoopEvent, LoopState, DEFAULT_MAX_RETRIES};
+use crate::ralph_loop::{LoopEvent, LoopState, DEFAULT_MAX_RETRIES, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use crate::spec::SpecAdapter;
 use crate::spec::{Scenario, Story};
@@ -53,6 +54,19 @@ pub enum ResultTab {
     Tasks,
     /// Shows list of changed files from git diff.
     ChangedFiles,
+}
+
+/// Action to take after a quit key press during loop execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForceQuitAction {
+    /// First press: request graceful stop.
+    Graceful,
+    /// Second press: show hint about force-quit.
+    Hint,
+    /// Third press: force-quit immediately.
+    ForceQuit,
+    /// Loop already stopped: navigate back to selection.
+    NavigateBack,
 }
 
 pub struct App {
@@ -109,6 +123,12 @@ pub struct App {
     pub loop_thread: Option<JoinHandle<()>>,
     /// Maximum number of retries per story (CLI: --max-retries).
     pub max_retries: usize,
+    /// Timeout in seconds for external commands (CLI: --command-timeout).
+    pub command_timeout: u64,
+    /// Count of consecutive 'q' presses for force-quit mechanism.
+    pub quit_press_count: usize,
+    /// Time of last 'q' press for tracking consecutive presses.
+    pub last_quit_time: Option<Instant>,
 }
 
 impl App {
@@ -141,12 +161,21 @@ impl App {
             loop_stop_flag: None,
             loop_thread: None,
             max_retries: DEFAULT_MAX_RETRIES,
+            command_timeout: DEFAULT_COMMAND_TIMEOUT_SECS,
+            quit_press_count: 0,
+            last_quit_time: None,
         }
     }
 
     /// Sets the maximum number of retries per story.
     pub fn with_max_retries(mut self, max_retries: usize) -> Self {
         self.max_retries = max_retries;
+        self
+    }
+
+    /// Sets the timeout in seconds for external commands.
+    pub fn with_command_timeout(mut self, timeout: u64) -> Self {
+        self.command_timeout = timeout;
         self
     }
 
@@ -182,6 +211,7 @@ impl App {
             // Spawn orchestrator in background thread with tokio runtime
             let change_name = name.clone();
             let max_retries = self.max_retries;
+            let command_timeout = self.command_timeout;
             let handle = std::thread::spawn(move || {
                 // Create tokio runtime for async orchestrator
                 let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -203,7 +233,8 @@ impl App {
                     // Create and run orchestrator
                     let agent = Box::new(ClaudeAgent::new());
                     let mut orchestrator =
-                        Orchestrator::new(&change_name, agent, tokio_tx, max_retries);
+                        Orchestrator::new(&change_name, agent, tokio_tx, max_retries)
+                            .with_command_timeout(command_timeout);
 
                     // Set the stop flag on the orchestrator
                     let orch_stop = orchestrator.stop_handle();
@@ -563,6 +594,86 @@ impl App {
 
         if let Some(ref flag) = self.loop_stop_flag {
             flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Duration in seconds for tracking consecutive 'q' presses.
+    const FORCE_QUIT_WINDOW_SECS: u64 = 3;
+
+    /// Number of consecutive 'q' presses required for force-quit.
+    #[allow(dead_code)] // Used in force_quit_hint() which is tested but not yet integrated in UI
+    const FORCE_QUIT_PRESS_COUNT: usize = 3;
+
+    /// Handles a quit key press during loop execution.
+    ///
+    /// Returns `ForceQuitAction` indicating what action should be taken:
+    /// - `Graceful`: Request graceful stop (first press)
+    /// - `Hint`: Stop already requested, show hint about force-quit (second press)
+    /// - `ForceQuit`: Third press within 3 seconds, force-quit immediately
+    /// - `NavigateBack`: Loop already stopped, navigate back to selection
+    pub fn handle_quit_press(&mut self) -> ForceQuitAction {
+        use std::time::Duration;
+
+        if !self.loop_state.running {
+            // Loop already stopped, allow normal navigation
+            return ForceQuitAction::NavigateBack;
+        }
+
+        let now = Instant::now();
+        let window = Duration::from_secs(Self::FORCE_QUIT_WINDOW_SECS);
+
+        // Check if this press is within the time window of the last press
+        let within_window = self.last_quit_time
+            .map(|t| now.duration_since(t) < window)
+            .unwrap_or(false);
+
+        if within_window {
+            self.quit_press_count += 1;
+        } else {
+            // Reset count if outside window
+            self.quit_press_count = 1;
+        }
+        self.last_quit_time = Some(now);
+
+        match self.quit_press_count {
+            1 => {
+                // First press: request graceful stop
+                self.request_loop_stop();
+                ForceQuitAction::Graceful
+            }
+            2 => {
+                // Second press: show hint about force-quit
+                ForceQuitAction::Hint
+            }
+            _ => {
+                // Third or more presses: force-quit
+                // Attempt cleanup before exit
+                self.cleanup_loop();
+                ForceQuitAction::ForceQuit
+            }
+        }
+    }
+
+    /// Resets the quit press counter (called when navigating away from loop screen).
+    pub fn reset_quit_counter(&mut self) {
+        self.quit_press_count = 0;
+        self.last_quit_time = None;
+    }
+
+    /// Returns a message indicating force-quit status.
+    ///
+    /// This is displayed in the UI when graceful stop is requested but not yet complete.
+    #[allow(dead_code)] // Public API for TUI integration, tested but not yet wired to UI rendering
+    pub fn force_quit_hint(&self) -> Option<String> {
+        if self.quit_press_count >= 1 && self.loop_state.running {
+            let remaining = Self::FORCE_QUIT_PRESS_COUNT.saturating_sub(self.quit_press_count);
+            if remaining > 0 {
+                Some(format!("Press 'q' {} more time{} to force-quit", remaining, if remaining == 1 { "" } else { "s" }))
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
@@ -1531,5 +1642,120 @@ mod tests {
     fn default_max_retries_is_default_constant() {
         let app = App::new();
         assert_eq!(app.max_retries, DEFAULT_MAX_RETRIES);
+    }
+
+    // ==================== Force-Quit Tests ====================
+
+    #[test]
+    fn force_quit_first_press_returns_graceful() {
+        let mut app = App::new();
+        app.loop_state.running = true;
+
+        let action = app.handle_quit_press();
+
+        assert_eq!(action, ForceQuitAction::Graceful);
+        assert_eq!(app.quit_press_count, 1);
+    }
+
+    #[test]
+    fn force_quit_second_press_returns_hint() {
+        let mut app = App::new();
+        app.loop_state.running = true;
+
+        app.handle_quit_press(); // First press
+        let action = app.handle_quit_press(); // Second press
+
+        assert_eq!(action, ForceQuitAction::Hint);
+        assert_eq!(app.quit_press_count, 2);
+    }
+
+    #[test]
+    fn force_quit_third_press_returns_force_quit() {
+        let mut app = App::new();
+        app.loop_state.running = true;
+
+        app.handle_quit_press(); // First press
+        app.handle_quit_press(); // Second press
+        let action = app.handle_quit_press(); // Third press
+
+        assert_eq!(action, ForceQuitAction::ForceQuit);
+        assert_eq!(app.quit_press_count, 3);
+    }
+
+    #[test]
+    fn force_quit_when_not_running_returns_navigate_back() {
+        let mut app = App::new();
+        app.loop_state.running = false;
+
+        let action = app.handle_quit_press();
+
+        assert_eq!(action, ForceQuitAction::NavigateBack);
+    }
+
+    #[test]
+    fn force_quit_resets_after_timeout() {
+        use std::time::Duration;
+
+        let mut app = App::new();
+        app.loop_state.running = true;
+
+        // Simulate a press that happened 5 seconds ago (outside the 3-second window)
+        app.quit_press_count = 2;
+        app.last_quit_time = Some(Instant::now() - Duration::from_secs(5));
+
+        // This should reset the counter since we're outside the time window
+        let action = app.handle_quit_press();
+
+        assert_eq!(action, ForceQuitAction::Graceful);
+        assert_eq!(app.quit_press_count, 1); // Reset to 1, not 3
+    }
+
+    #[test]
+    fn reset_quit_counter_clears_state() {
+        let mut app = App::new();
+        app.quit_press_count = 2;
+        app.last_quit_time = Some(Instant::now());
+
+        app.reset_quit_counter();
+
+        assert_eq!(app.quit_press_count, 0);
+        assert!(app.last_quit_time.is_none());
+    }
+
+    #[test]
+    fn force_quit_hint_shows_remaining_presses() {
+        let mut app = App::new();
+        app.loop_state.running = true;
+
+        // After first press
+        app.handle_quit_press();
+        let hint = app.force_quit_hint();
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("2 more times"));
+
+        // After second press
+        app.handle_quit_press();
+        let hint = app.force_quit_hint();
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("1 more time"));
+    }
+
+    #[test]
+    fn force_quit_hint_none_when_not_running() {
+        let mut app = App::new();
+        app.loop_state.running = false;
+
+        let hint = app.force_quit_hint();
+        assert!(hint.is_none());
+    }
+
+    #[test]
+    fn force_quit_hint_none_before_first_press() {
+        let mut app = App::new();
+        app.loop_state.running = true;
+        app.quit_press_count = 0;
+
+        let hint = app.force_quit_hint();
+        assert!(hint.is_none());
     }
 }

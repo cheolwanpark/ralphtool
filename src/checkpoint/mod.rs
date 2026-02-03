@@ -2,10 +2,15 @@
 //!
 //! Provides checkpoint/revert functionality to preserve working directory state
 //! before agent execution and restore it on failure.
+//!
+//! All operations are async-safe, using `async_cmd` to avoid blocking tokio
+//! worker threads.
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 
+use crate::async_cmd;
 use crate::error::{Error, Result};
 
 /// Checkpoint manager using git stash for state preservation.
@@ -13,21 +18,22 @@ use crate::error::{Error, Result};
 /// Creates named stashes with the pattern `ralph:{change_name}:{story_id}`
 /// to allow targeted revert and cleanup operations.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Will be used by orchestrator in Story 3
 pub struct Checkpoint {
     /// The name of the change being worked on.
     change_name: String,
     /// Optional working directory for git commands (for testing).
     work_dir: Option<PathBuf>,
+    /// Timeout for git commands.
+    timeout: Duration,
 }
 
-#[allow(dead_code)] // Will be used by orchestrator in Story 3
 impl Checkpoint {
-    /// Creates a new Checkpoint for the given change.
-    pub fn new(change_name: impl Into<String>) -> Self {
+    /// Creates a new Checkpoint with a custom timeout.
+    pub fn with_timeout(change_name: impl Into<String>, timeout: Duration) -> Self {
         Self {
             change_name: change_name.into(),
             work_dir: None,
+            timeout,
         }
     }
 
@@ -38,6 +44,7 @@ impl Checkpoint {
         Self {
             change_name: change_name.into(),
             work_dir: Some(work_dir),
+            timeout: async_cmd::DEFAULT_TIMEOUT,
         }
     }
 
@@ -47,6 +54,7 @@ impl Checkpoint {
     }
 
     /// Creates a Command with the appropriate working directory set.
+    /// Used for sync fallback in tests with work_dir.
     fn git_command(&self) -> Command {
         let mut cmd = Command::new("git");
         if let Some(ref work_dir) = self.work_dir {
@@ -58,14 +66,13 @@ impl Checkpoint {
     /// Saves the current working directory state as a checkpoint.
     ///
     /// Uses `git stash push -u -m "ralph:{change}:{story}"` to capture both
-    /// tracked and untracked files.
-    pub fn save(&self, story_id: &str) -> Result<()> {
+    /// tracked and untracked files. Does not block tokio worker threads.
+    pub async fn save(&self, story_id: &str) -> Result<()> {
         let message = self.stash_message(story_id);
 
-        let output = self
-            .git_command()
-            .args(["stash", "push", "-u", "-m", &message])
-            .output()?;
+        let args = vec!["stash", "push", "-u", "-m", &message];
+
+        let output = self.run_git(&args).await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -84,10 +91,10 @@ impl Checkpoint {
     /// message pattern `ralph:{change}:{story}`.
     ///
     /// Returns `None` if no matching stash is found.
-    pub fn find_stash(&self, story_id: &str) -> Result<Option<usize>> {
+    pub async fn find_stash(&self, story_id: &str) -> Result<Option<usize>> {
         let message = self.stash_message(story_id);
 
-        let output = self.git_command().args(["stash", "list"]).output()?;
+        let output = self.run_git(&["stash", "list"]).await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -123,18 +130,15 @@ impl Checkpoint {
     /// preserved for potential further retries.
     ///
     /// Before applying, cleans the working directory to ensure a clean state.
-    pub fn revert(&self, story_id: &str) -> Result<()> {
-        let index = self.find_stash(story_id)?.ok_or_else(|| Error::Command {
+    pub async fn revert(&self, story_id: &str) -> Result<()> {
+        let index = self.find_stash(story_id).await?.ok_or_else(|| Error::Command {
             cmd: "git stash apply".to_string(),
             stderr: format!("No checkpoint found for story: {}", story_id),
         })?;
 
         // First, clean the working directory to discard agent changes
         // Reset tracked files
-        let reset_output = self
-            .git_command()
-            .args(["checkout", "--", "."])
-            .output()?;
+        let reset_output = self.run_git(&["checkout", "--", "."]).await?;
 
         if !reset_output.status.success() {
             let stderr = String::from_utf8_lossy(&reset_output.stderr).to_string();
@@ -145,7 +149,7 @@ impl Checkpoint {
         }
 
         // Remove untracked files
-        let clean_output = self.git_command().args(["clean", "-fd"]).output()?;
+        let clean_output = self.run_git(&["clean", "-fd"]).await?;
 
         if !clean_output.status.success() {
             let stderr = String::from_utf8_lossy(&clean_output.stderr).to_string();
@@ -157,10 +161,7 @@ impl Checkpoint {
 
         // Apply the stash
         let stash_ref = format!("stash@{{{}}}", index);
-        let output = self
-            .git_command()
-            .args(["stash", "apply", &stash_ref])
-            .output()?;
+        let output = self.run_git(&["stash", "apply", &stash_ref]).await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -177,17 +178,14 @@ impl Checkpoint {
     ///
     /// Uses `git stash drop stash@{n}` to remove the checkpoint after
     /// successful completion.
-    pub fn drop(&self, story_id: &str) -> Result<()> {
-        let index = self.find_stash(story_id)?.ok_or_else(|| Error::Command {
+    pub async fn drop(&self, story_id: &str) -> Result<()> {
+        let index = self.find_stash(story_id).await?.ok_or_else(|| Error::Command {
             cmd: "git stash drop".to_string(),
             stderr: format!("No checkpoint found for story: {}", story_id),
         })?;
 
         let stash_ref = format!("stash@{{{}}}", index);
-        let output = self
-            .git_command()
-            .args(["stash", "drop", &stash_ref])
-            .output()?;
+        let output = self.run_git(&["stash", "drop", &stash_ref]).await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -204,13 +202,13 @@ impl Checkpoint {
     ///
     /// Drops all stashes with messages matching `ralph:{change_name}:*`.
     /// This should be called when the orchestrator finishes (success or failure).
-    pub fn cleanup(&self) -> Result<()> {
+    pub async fn cleanup(&self) -> Result<()> {
         let pattern = format!("ralph:{}:", self.change_name);
 
         // Keep dropping stashes until none match
         // We need to re-query each time because indices shift after each drop
         loop {
-            let output = self.git_command().args(["stash", "list"]).output()?;
+            let output = self.run_git(&["stash", "list"]).await?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -241,9 +239,7 @@ impl Checkpoint {
             match found_index {
                 Some(index) => {
                     let stash_ref = format!("stash@{{{}}}", index);
-                    let drop_output = self.git_command()
-                        .args(["stash", "drop", &stash_ref])
-                        .output()?;
+                    let drop_output = self.run_git(&["stash", "drop", &stash_ref]).await?;
 
                     if !drop_output.status.success() {
                         let stderr = String::from_utf8_lossy(&drop_output.stderr).to_string();
@@ -259,6 +255,21 @@ impl Checkpoint {
 
         Ok(())
     }
+
+    /// Helper to run a git command asynchronously.
+    ///
+    /// For testing (when work_dir is set), falls back to sync execution.
+    /// In production (work_dir is None), uses async_cmd for non-blocking execution.
+    async fn run_git(&self, args: &[&str]) -> Result<std::process::Output> {
+        if self.work_dir.is_some() {
+            // Fall back to sync for testing with work_dir
+            let output = self.git_command().args(args).output()?;
+            Ok(output)
+        } else {
+            // Use async command execution
+            async_cmd::run_unchecked_with_timeout("git", args, self.timeout).await
+        }
+    }
 }
 
 #[cfg(test)]
@@ -269,7 +280,7 @@ mod tests {
 
     #[test]
     fn stash_message_format() {
-        let checkpoint = Checkpoint::new("my-feature");
+        let checkpoint = Checkpoint::with_timeout("my-feature", async_cmd::DEFAULT_TIMEOUT);
         assert_eq!(
             checkpoint.stash_message("story-1"),
             "ralph:my-feature:story-1"
@@ -277,8 +288,8 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_new_sets_change_name() {
-        let checkpoint = Checkpoint::new("test-change");
+    fn checkpoint_with_timeout_sets_change_name() {
+        let checkpoint = Checkpoint::with_timeout("test-change", async_cmd::DEFAULT_TIMEOUT);
         assert_eq!(checkpoint.change_name, "test-change");
     }
 
@@ -333,8 +344,8 @@ mod tests {
         checkpoint.work_dir.as_ref().expect("Checkpoint should have work_dir for tests")
     }
 
-    #[test]
-    fn save_creates_stash_with_correct_message() {
+    #[tokio::test]
+    async fn save_creates_stash_with_correct_message() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -342,7 +353,7 @@ mod tests {
         let test_file = path.join("test.txt");
         fs::write(&test_file, "modified content").expect("Failed to write test file");
 
-        checkpoint.save("story-1").expect("save should succeed");
+        checkpoint.save("story-1").await.expect("save should succeed");
 
         // Verify stash was created
         let output = Command::new("git")
@@ -359,8 +370,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn save_includes_untracked_files() {
+    #[tokio::test]
+    async fn save_includes_untracked_files() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -368,7 +379,7 @@ mod tests {
         let untracked_file = path.join("untracked.txt");
         fs::write(&untracked_file, "untracked content").expect("Failed to write untracked file");
 
-        checkpoint.save("story-1").expect("save should succeed");
+        checkpoint.save("story-1").await.expect("save should succeed");
 
         // After stash, untracked file should be gone (stashed)
         assert!(
@@ -377,7 +388,7 @@ mod tests {
         );
 
         // Verify we can get it back
-        checkpoint.revert("story-1").expect("revert should succeed");
+        checkpoint.revert("story-1").await.expect("revert should succeed");
 
         assert!(
             untracked_file.exists(),
@@ -385,8 +396,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn find_stash_returns_correct_index() {
+    #[tokio::test]
+    async fn find_stash_returns_correct_index() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -394,40 +405,43 @@ mod tests {
         let file1 = path.join("file1.txt");
         fs::write(&file1, "content1").expect("Failed to write file1");
 
-        checkpoint.save("story-1").expect("save story-1 should succeed");
+        checkpoint.save("story-1").await.expect("save story-1 should succeed");
 
         let file2 = path.join("file2.txt");
         fs::write(&file2, "content2").expect("Failed to write file2");
 
-        checkpoint.save("story-2").expect("save story-2 should succeed");
+        checkpoint.save("story-2").await.expect("save story-2 should succeed");
 
         // story-2 should be at index 0 (most recent)
         // story-1 should be at index 1
         let index1 = checkpoint
             .find_stash("story-1")
+            .await
             .expect("find_stash should succeed")
             .expect("story-1 should exist");
         assert_eq!(index1, 1, "story-1 should be at index 1");
 
         let index2 = checkpoint
             .find_stash("story-2")
+            .await
             .expect("find_stash should succeed")
             .expect("story-2 should exist");
         assert_eq!(index2, 0, "story-2 should be at index 0");
     }
 
-    #[test]
-    fn find_stash_returns_none_for_missing_stash() {
+    #[tokio::test]
+    async fn find_stash_returns_none_for_missing_stash() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
 
         let index = checkpoint
             .find_stash("nonexistent")
+            .await
             .expect("find_stash should succeed");
         assert!(index.is_none(), "Should return None for missing stash");
     }
 
-    #[test]
-    fn revert_restores_stashed_state() {
+    #[tokio::test]
+    async fn revert_restores_stashed_state() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -435,21 +449,21 @@ mod tests {
         let test_file = path.join("test.txt");
         fs::write(&test_file, "original content").expect("Failed to write test file");
 
-        checkpoint.save("story-1").expect("save should succeed");
+        checkpoint.save("story-1").await.expect("save should succeed");
 
         // File should be gone after stash
         assert!(!test_file.exists(), "File should be removed after stash");
 
         // Revert should bring it back
-        checkpoint.revert("story-1").expect("revert should succeed");
+        checkpoint.revert("story-1").await.expect("revert should succeed");
 
         assert!(test_file.exists(), "File should be restored after revert");
         let content = fs::read_to_string(&test_file).expect("Failed to read restored file");
         assert_eq!(content, "original content");
     }
 
-    #[test]
-    fn revert_discards_agent_changes() {
+    #[tokio::test]
+    async fn revert_discards_agent_changes() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -457,14 +471,14 @@ mod tests {
         let test_file = path.join("test.txt");
         fs::write(&test_file, "original content").expect("Failed to write test file");
 
-        checkpoint.save("story-1").expect("save should succeed");
+        checkpoint.save("story-1").await.expect("save should succeed");
 
         // Simulate agent making changes (creating new file)
         let agent_file = path.join("agent_created.txt");
         fs::write(&agent_file, "agent output").expect("Failed to write agent file");
 
         // Revert should discard agent changes and restore original
-        checkpoint.revert("story-1").expect("revert should succeed");
+        checkpoint.revert("story-1").await.expect("revert should succeed");
 
         assert!(
             !agent_file.exists(),
@@ -476,16 +490,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn revert_fails_for_missing_stash() {
+    #[tokio::test]
+    async fn revert_fails_for_missing_stash() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
 
-        let result = checkpoint.revert("nonexistent");
+        let result = checkpoint.revert("nonexistent").await;
         assert!(result.is_err(), "revert should fail for missing stash");
     }
 
-    #[test]
-    fn drop_removes_stash() {
+    #[tokio::test]
+    async fn drop_removes_stash() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -493,34 +507,36 @@ mod tests {
         let test_file = path.join("test.txt");
         fs::write(&test_file, "content").expect("Failed to write test file");
 
-        checkpoint.save("story-1").expect("save should succeed");
+        checkpoint.save("story-1").await.expect("save should succeed");
 
         // Verify stash exists
         let index_before = checkpoint
             .find_stash("story-1")
+            .await
             .expect("find_stash should succeed");
         assert!(index_before.is_some(), "Stash should exist before drop");
 
         // Drop the stash
-        checkpoint.drop("story-1").expect("drop should succeed");
+        checkpoint.drop("story-1").await.expect("drop should succeed");
 
         // Verify stash is gone
         let index_after = checkpoint
             .find_stash("story-1")
+            .await
             .expect("find_stash should succeed");
         assert!(index_after.is_none(), "Stash should not exist after drop");
     }
 
-    #[test]
-    fn drop_fails_for_missing_stash() {
+    #[tokio::test]
+    async fn drop_fails_for_missing_stash() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
 
-        let result = checkpoint.drop("nonexistent");
+        let result = checkpoint.drop("nonexistent").await;
         assert!(result.is_err(), "drop should fail for missing stash");
     }
 
-    #[test]
-    fn cleanup_removes_all_matching_stashes() {
+    #[tokio::test]
+    async fn cleanup_removes_all_matching_stashes() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -531,6 +547,7 @@ mod tests {
 
             checkpoint
                 .save(&format!("story-{}", i))
+                .await
                 .expect("save should succeed");
         }
 
@@ -538,17 +555,19 @@ mod tests {
         for i in 1..=3 {
             let index = checkpoint
                 .find_stash(&format!("story-{}", i))
+                .await
                 .expect("find_stash should succeed");
             assert!(index.is_some(), "story-{} should exist before cleanup", i);
         }
 
         // Cleanup
-        checkpoint.cleanup().expect("cleanup should succeed");
+        checkpoint.cleanup().await.expect("cleanup should succeed");
 
         // Verify all stashes are gone
         for i in 1..=3 {
             let index = checkpoint
                 .find_stash(&format!("story-{}", i))
+                .await
                 .expect("find_stash should succeed");
             assert!(
                 index.is_none(),
@@ -558,8 +577,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn cleanup_only_removes_matching_change() {
+    #[tokio::test]
+    async fn cleanup_only_removes_matching_change() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();
 
@@ -604,19 +623,20 @@ mod tests {
         // Create stash for change-a
         let file1 = repo_path.join("file1.txt");
         fs::write(&file1, "content1").expect("Failed to write file1");
-        checkpoint1.save("story-1").expect("save should succeed");
+        checkpoint1.save("story-1").await.expect("save should succeed");
 
         // Create stash for change-b
         let file2 = repo_path.join("file2.txt");
         fs::write(&file2, "content2").expect("Failed to write file2");
-        checkpoint2.save("story-1").expect("save should succeed");
+        checkpoint2.save("story-1").await.expect("save should succeed");
 
         // Cleanup only change-a
-        checkpoint1.cleanup().expect("cleanup should succeed");
+        checkpoint1.cleanup().await.expect("cleanup should succeed");
 
         // change-a stash should be gone
         let index_a = checkpoint1
             .find_stash("story-1")
+            .await
             .expect("find_stash should succeed");
         assert!(
             index_a.is_none(),
@@ -626,6 +646,7 @@ mod tests {
         // change-b stash should still exist
         let index_b = checkpoint2
             .find_stash("story-1")
+            .await
             .expect("find_stash should succeed");
         assert!(
             index_b.is_some(),
@@ -636,7 +657,7 @@ mod tests {
     #[test]
     fn stash_naming_convention() {
         // Verify the naming convention matches the design
-        let checkpoint = Checkpoint::new("my-feature");
+        let checkpoint = Checkpoint::with_timeout("my-feature", async_cmd::DEFAULT_TIMEOUT);
         assert_eq!(
             checkpoint.stash_message("story-1"),
             "ralph:my-feature:story-1"
@@ -647,8 +668,8 @@ mod tests {
         assert_eq!(pattern, "ralph:my-feature:");
     }
 
-    #[test]
-    fn revert_preserves_stash_for_retries() {
+    #[tokio::test]
+    async fn revert_preserves_stash_for_retries() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("my-change");
         let path = repo_path(&checkpoint);
 
@@ -656,14 +677,15 @@ mod tests {
         let test_file = path.join("test.txt");
         fs::write(&test_file, "content").expect("Failed to write test file");
 
-        checkpoint.save("story-1").expect("save should succeed");
+        checkpoint.save("story-1").await.expect("save should succeed");
 
         // Revert (simulating first retry)
-        checkpoint.revert("story-1").expect("revert should succeed");
+        checkpoint.revert("story-1").await.expect("revert should succeed");
 
         // Stash should still exist (for potential second retry)
         let index = checkpoint
             .find_stash("story-1")
+            .await
             .expect("find_stash should succeed");
         assert!(
             index.is_some(),
@@ -676,11 +698,13 @@ mod tests {
 
         checkpoint
             .revert("story-1")
+            .await
             .expect("second revert should succeed");
 
         // Stash should still exist
         let index = checkpoint
             .find_stash("story-1")
+            .await
             .expect("find_stash should succeed");
         assert!(
             index.is_some(),
@@ -701,8 +725,8 @@ mod tests {
     /// 6. Agent succeeds (outputs COMPLETE)
     /// 7. Drop checkpoint on success
     /// 8. Cleanup any remaining stashes
-    #[test]
-    fn integration_full_checkpoint_revert_retry_cycle() {
+    #[tokio::test]
+    async fn integration_full_checkpoint_revert_retry_cycle() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("test-feature");
         let path = repo_path(&checkpoint).clone();
 
@@ -730,10 +754,11 @@ mod tests {
         // ============ STEP 1: Save checkpoint before agent spawn ============
         checkpoint
             .save("story-1")
+            .await
             .expect("save checkpoint should succeed");
 
         // Verify checkpoint exists
-        let stash_index = checkpoint.find_stash("story-1").unwrap();
+        let stash_index = checkpoint.find_stash("story-1").await.unwrap();
         assert!(stash_index.is_some(), "Checkpoint should exist after save");
 
         // ============ STEP 2: Agent attempt 1 - makes changes but fails ============
@@ -755,7 +780,7 @@ mod tests {
         );
 
         // ============ STEP 3: Revert to checkpoint (retry attempt 1) ============
-        checkpoint.revert("story-1").expect("revert should succeed");
+        checkpoint.revert("story-1").await.expect("revert should succeed");
 
         // Verify working directory is restored to pre-agent state
         assert!(
@@ -769,7 +794,7 @@ mod tests {
         );
 
         // Verify stash is preserved for potential second retry
-        let stash_index = checkpoint.find_stash("story-1").unwrap();
+        let stash_index = checkpoint.find_stash("story-1").await.unwrap();
         assert!(
             stash_index.is_some(),
             "Stash should still exist after revert (for retries)"
@@ -783,6 +808,7 @@ mod tests {
         // ============ STEP 5: Revert to checkpoint (retry attempt 2) ============
         checkpoint
             .revert("story-1")
+            .await
             .expect("second revert should succeed");
 
         // Verify clean state again
@@ -801,10 +827,11 @@ mod tests {
         // ============ STEP 7: Drop checkpoint on success ============
         checkpoint
             .drop("story-1")
+            .await
             .expect("drop should succeed on success");
 
         // Verify stash is gone
-        let stash_index = checkpoint.find_stash("story-1").unwrap();
+        let stash_index = checkpoint.find_stash("story-1").await.unwrap();
         assert!(
             stash_index.is_none(),
             "Stash should be dropped after successful completion"
@@ -828,8 +855,8 @@ mod tests {
     /// 1. Story 1 succeeds after 1 retry
     /// 2. Story 2 succeeds on first try
     /// 3. All checkpoints are cleaned up at the end
-    #[test]
-    fn integration_multiple_stories_with_cleanup() {
+    #[tokio::test]
+    async fn integration_multiple_stories_with_cleanup() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("multi-story-change");
         let path = repo_path(&checkpoint).clone();
 
@@ -839,6 +866,7 @@ mod tests {
 
         checkpoint
             .save("story-1")
+            .await
             .expect("save story-1 should succeed");
 
         // Agent fails
@@ -847,12 +875,14 @@ mod tests {
         // Revert
         checkpoint
             .revert("story-1")
+            .await
             .expect("revert story-1 should succeed");
 
         // Agent succeeds
         fs::write(&story1_file, "story 1 success").unwrap();
         checkpoint
             .drop("story-1")
+            .await
             .expect("drop story-1 should succeed");
 
         // Commit story 1 changes
@@ -873,17 +903,19 @@ mod tests {
 
         checkpoint
             .save("story-2")
+            .await
             .expect("save story-2 should succeed");
 
         // Agent succeeds immediately
         fs::write(&story2_file, "story 2 success").unwrap();
         checkpoint
             .drop("story-2")
+            .await
             .expect("drop story-2 should succeed");
 
         // ============ Verify no orphaned stashes ============
-        let stash1 = checkpoint.find_stash("story-1").unwrap();
-        let stash2 = checkpoint.find_stash("story-2").unwrap();
+        let stash1 = checkpoint.find_stash("story-1").await.unwrap();
+        let stash2 = checkpoint.find_stash("story-2").await.unwrap();
         assert!(stash1.is_none(), "story-1 stash should be dropped");
         assert!(stash2.is_none(), "story-2 stash should be dropped");
     }
@@ -894,8 +926,8 @@ mod tests {
     /// 1. Each attempt fails
     /// 2. After max retries, loop stops
     /// 3. Cleanup removes all orphaned stashes
-    #[test]
-    fn integration_max_retries_exceeded_with_cleanup() {
+    #[tokio::test]
+    async fn integration_max_retries_exceeded_with_cleanup() {
         let (_temp_dir, checkpoint) = setup_temp_repo_with_checkpoint("failed-change");
         let path = repo_path(&checkpoint).clone();
         let max_retries = 3;
@@ -905,7 +937,7 @@ mod tests {
         fs::write(&work_file, "initial work").unwrap();
 
         // Save checkpoint
-        checkpoint.save("story-1").expect("save should succeed");
+        checkpoint.save("story-1").await.expect("save should succeed");
 
         // Simulate max_retries failed attempts
         for attempt in 1..=max_retries {
@@ -915,22 +947,22 @@ mod tests {
             // Agent fails
             if attempt < max_retries {
                 // Revert for retry
-                checkpoint.revert("story-1").expect("revert should succeed");
+                checkpoint.revert("story-1").await.expect("revert should succeed");
             }
         }
 
         // After max retries exceeded, stash should still exist
-        let stash_before_cleanup = checkpoint.find_stash("story-1").unwrap();
+        let stash_before_cleanup = checkpoint.find_stash("story-1").await.unwrap();
         assert!(
             stash_before_cleanup.is_some(),
             "Stash should exist before cleanup (never dropped due to max retries)"
         );
 
         // ============ Cleanup on loop exit ============
-        checkpoint.cleanup().expect("cleanup should succeed");
+        checkpoint.cleanup().await.expect("cleanup should succeed");
 
         // Verify all stashes are gone
-        let stash_after_cleanup = checkpoint.find_stash("story-1").unwrap();
+        let stash_after_cleanup = checkpoint.find_stash("story-1").await.unwrap();
         assert!(
             stash_after_cleanup.is_none(),
             "Stash should be cleaned up after loop exit"
@@ -941,8 +973,8 @@ mod tests {
     ///
     /// This tests the scenario where checkpoints for different changes
     /// exist simultaneously.
-    #[test]
-    fn integration_stash_isolation_between_changes() {
+    #[tokio::test]
+    async fn integration_stash_isolation_between_changes() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let repo_path = temp_dir.path().to_path_buf();
 
@@ -987,34 +1019,34 @@ mod tests {
         // Create stash for feature-a story-1
         let file_a = repo_path.join("feature_a.txt");
         fs::write(&file_a, "feature a work").unwrap();
-        checkpoint_a.save("story-1").expect("save a should succeed");
+        checkpoint_a.save("story-1").await.expect("save a should succeed");
 
         // Create stash for feature-b story-1
         let file_b = repo_path.join("feature_b.txt");
         fs::write(&file_b, "feature b work").unwrap();
-        checkpoint_b.save("story-1").expect("save b should succeed");
+        checkpoint_b.save("story-1").await.expect("save b should succeed");
 
         // Verify both stashes exist
-        assert!(checkpoint_a.find_stash("story-1").unwrap().is_some());
-        assert!(checkpoint_b.find_stash("story-1").unwrap().is_some());
+        assert!(checkpoint_a.find_stash("story-1").await.unwrap().is_some());
+        assert!(checkpoint_b.find_stash("story-1").await.unwrap().is_some());
 
         // Cleanup feature-a
-        checkpoint_a.cleanup().expect("cleanup a should succeed");
+        checkpoint_a.cleanup().await.expect("cleanup a should succeed");
 
         // Feature-a stash should be gone, feature-b should remain
         assert!(
-            checkpoint_a.find_stash("story-1").unwrap().is_none(),
+            checkpoint_a.find_stash("story-1").await.unwrap().is_none(),
             "feature-a stash should be cleaned up"
         );
         assert!(
-            checkpoint_b.find_stash("story-1").unwrap().is_some(),
+            checkpoint_b.find_stash("story-1").await.unwrap().is_some(),
             "feature-b stash should remain"
         );
 
         // Cleanup feature-b
-        checkpoint_b.cleanup().expect("cleanup b should succeed");
+        checkpoint_b.cleanup().await.expect("cleanup b should succeed");
         assert!(
-            checkpoint_b.find_stash("story-1").unwrap().is_none(),
+            checkpoint_b.find_stash("story-1").await.unwrap().is_none(),
             "feature-b stash should be cleaned up"
         );
     }

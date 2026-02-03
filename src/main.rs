@@ -1,4 +1,5 @@
 mod agent;
+mod async_cmd;
 mod checkpoint;
 mod ralph_loop;
 mod app;
@@ -21,7 +22,7 @@ use ratatui::prelude::*;
 
 use app::App;
 use event::handle_events;
-use ralph_loop::DEFAULT_MAX_RETRIES;
+use ralph_loop::{DEFAULT_MAX_RETRIES, DEFAULT_COMMAND_TIMEOUT_SECS};
 use ui::render;
 
 /// Ralph Loop - Autonomous AI development orchestrator
@@ -32,14 +33,18 @@ struct Cli {
     /// Maximum number of retries per story when agent fails
     #[arg(long, default_value_t = DEFAULT_MAX_RETRIES)]
     max_retries: usize,
+
+    /// Timeout in seconds for external commands (git, openspec)
+    #[arg(long, default_value_t = DEFAULT_COMMAND_TIMEOUT_SECS)]
+    command_timeout: u64,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    run_tui(cli.max_retries)
+    run_tui(cli.max_retries, cli.command_timeout)
 }
 
-fn run_tui(max_retries: usize) -> Result<()> {
+fn run_tui(max_retries: usize, command_timeout: u64) -> Result<()> {
     // Check if openspec CLI is available
     if let Err(e) = check_openspec_cli() {
         eprintln!("Error: {}", e);
@@ -51,7 +56,9 @@ fn run_tui(max_retries: usize) -> Result<()> {
 
     let mut terminal = init_terminal()?;
 
-    let mut app = App::new().with_max_retries(max_retries);
+    let mut app = App::new()
+        .with_max_retries(max_retries)
+        .with_command_timeout(command_timeout);
 
     // Load available changes on startup
     if let Err(e) = app.load_changes() {
@@ -72,10 +79,12 @@ fn run_tui(max_retries: usize) -> Result<()> {
                 // Loop completed normally - show result screen
                 let result = app.build_loop_result();
                 app.cleanup_loop();
+                app.reset_quit_counter();
                 app.show_loop_result(result);
             } else if !app.loop_state.running && app.is_loop_thread_finished() {
                 // Loop was stopped by user - go back to selection
                 app.cleanup_loop();
+                app.reset_quit_counter();
                 app.back_to_selection();
             }
         }
