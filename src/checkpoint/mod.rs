@@ -246,11 +246,6 @@ impl Checkpoint {
         Ok(())
     }
 
-    /// Returns the original branch name, if available.
-    pub fn original_branch(&self) -> Option<&str> {
-        self.original_branch.as_deref()
-    }
-
     /// Creates a Command with the appropriate working directory set.
     /// Used for sync fallback in tests with work_dir.
     fn git_command(&self) -> Command {
@@ -390,9 +385,9 @@ mod tests {
 
         checkpoint.init().await.expect("init should succeed");
 
-        // Verify original branch was stored
+        // Verify original branch was stored internally
         assert_eq!(
-            checkpoint.original_branch(),
+            checkpoint.original_branch.as_deref(),
             Some(original_branch.as_str())
         );
     }

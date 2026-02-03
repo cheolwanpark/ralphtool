@@ -50,6 +50,12 @@ pub enum LoopEvent {
         message: String,
     },
 
+    /// Max retries exceeded for a story.
+    MaxRetriesExceeded {
+        /// ID of the story that exceeded max retries.
+        story_id: String,
+    },
+
     /// The loop has completed.
     Complete,
 }

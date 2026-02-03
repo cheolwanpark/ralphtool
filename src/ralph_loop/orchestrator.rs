@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use super::{LoopEvent, LoopEventSender, LoopState, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::agent::{CodingAgent, PromptBuilder, StreamEvent};
-use crate::checkpoint::{Checkpoint, CompletionOption};
+use crate::checkpoint::Checkpoint;
 use crate::error::Result;
 use crate::spec::{self, Story};
 
@@ -232,6 +232,10 @@ impl Orchestrator {
                                                 ),
                                             })
                                             .await;
+                                            self.emit(LoopEvent::MaxRetriesExceeded {
+                                                story_id: story_id.clone(),
+                                            })
+                                            .await;
                                             break 'story_loop;
                                         }
 
@@ -266,6 +270,10 @@ impl Orchestrator {
                                                 ),
                                             })
                                             .await;
+                                            self.emit(LoopEvent::MaxRetriesExceeded {
+                                                story_id: story_id.clone(),
+                                            })
+                                            .await;
                                             break 'story_loop;
                                         }
 
@@ -296,6 +304,10 @@ impl Orchestrator {
                                             "Max retries ({}) exceeded for story {} ({}): {}",
                                             self.max_retries, story_id, story_title, e
                                         ),
+                                    })
+                                    .await;
+                                    self.emit(LoopEvent::MaxRetriesExceeded {
+                                        story_id: story_id.clone(),
                                     })
                                     .await;
                                     break 'story_loop;
@@ -334,23 +346,6 @@ impl Orchestrator {
         state.running = false;
 
         Ok(state)
-    }
-
-    /// Performs cleanup with the given completion option.
-    ///
-    /// Called by TUI after user selects cleanup or keep option.
-    pub async fn cleanup(&self, option: CompletionOption) -> Result<()> {
-        self.checkpoint.cleanup(option).await
-    }
-
-    /// Returns the original branch name, if available.
-    pub fn original_branch(&self) -> Option<&str> {
-        self.checkpoint.original_branch()
-    }
-
-    /// Returns the ralph branch name.
-    pub fn ralph_branch(&self) -> String {
-        format!("ralph/{}", self.change_name)
     }
 
     /// Emit a loop event.

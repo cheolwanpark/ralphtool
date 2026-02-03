@@ -6,7 +6,6 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crate::agent::StreamEvent;
-use crate::checkpoint::CompletionOption;
 use crate::ralph_loop::{LoopEvent, LoopState, DEFAULT_MAX_RETRIES, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use crate::spec::SpecAdapter;
@@ -134,6 +133,8 @@ pub struct App {
     pub last_quit_time: Option<Instant>,
     /// Completion screen data.
     pub completion_data: CompletionData,
+    /// Story ID that exceeded max retries (if any).
+    pub max_retries_exceeded_story: Option<String>,
 }
 
 impl App {
@@ -170,6 +171,7 @@ impl App {
             quit_press_count: 0,
             last_quit_time: None,
             completion_data: CompletionData::default(),
+            max_retries_exceeded_story: None,
         }
     }
 
@@ -205,6 +207,7 @@ impl App {
             self.loop_agent_scroll = 0;
             self.loop_agent_auto_scroll = true;
             self.loop_agent_max_scroll = 0;
+            self.max_retries_exceeded_story = None;
 
             // Create channel for events (std::sync::mpsc for TUI compatibility)
             let (tx, rx) = mpsc::channel();
@@ -285,17 +288,6 @@ impl App {
             completion_reason: reason,
         };
         self.screen = Screen::LoopCompletion;
-    }
-
-    /// Handles completion option selection and triggers cleanup/keep.
-    pub fn confirm_completion_option(&mut self) -> CompletionOption {
-        self.completion_data.in_progress = true;
-        let option = self.completion_data.selected_completion_option();
-        self.completion_data.progress_message = Some(match option {
-            CompletionOption::Cleanup => format!("Returning to {}...", self.completion_data.original_branch),
-            CompletionOption::Keep => format!("Staying on {}...", self.completion_data.ralph_branch),
-        });
-        option
     }
 
     /// Transitions from completion screen to result screen after cleanup/keep completes.
@@ -610,6 +602,10 @@ impl App {
                 }
                 LoopEvent::Error { message: _ } => {
                     // Errors are logged but not stored in story_events
+                }
+                LoopEvent::MaxRetriesExceeded { story_id } => {
+                    // Store the story that exceeded max retries
+                    self.max_retries_exceeded_story = Some(story_id);
                 }
                 LoopEvent::Complete => {
                     self.loop_state.running = false;

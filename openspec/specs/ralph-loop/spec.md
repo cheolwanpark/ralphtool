@@ -57,11 +57,11 @@ The system SHALL orchestrate autonomous AI development by iterating through stor
 - **THEN** the system executes `git reset --hard HEAD` and retries without additional context
 
 ### Requirement: Loop events
-The system SHALL emit events during loop execution to enable TUI updates, including story progress information and full agent output with story association.
+The system SHALL emit events during loop execution to enable TUI updates, including story progress information, full agent output with story association, and max retries exceeded notification.
 
 #### Scenario: Event types
 - **WHEN** the loop is running
-- **THEN** the system emits StoryEvent, StoryProgress, Error, and Complete events
+- **THEN** the system emits StoryEvent, StoryProgress, Error, MaxRetriesExceeded, and Complete events
 
 #### Scenario: StoryEvent with full message
 - **WHEN** the agent emits a StreamEvent::Message
@@ -82,6 +82,12 @@ The system SHALL emit events during loop execution to enable TUI updates, includ
 - **THEN** it receives events via a channel and updates the display accordingly
 - **AND** stores messages per-story for navigation
 - **AND** shows the current story being worked on
+
+#### Scenario: Max retries exceeded event
+- **WHEN** retry count reaches max retries for a story
+- **THEN** the orchestrator emits a MaxRetriesExceeded event with the story_id
+- **AND** the TUI tracks this event to determine completion reason
+- **AND** the completion screen shows CompletionReason::MaxRetries with the failed story ID
 
 ### Requirement: Loop control
 The system SHALL allow the user to stop the loop, including a force-quit mechanism when graceful shutdown fails.

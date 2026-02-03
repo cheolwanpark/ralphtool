@@ -87,8 +87,15 @@ fn run_tui(max_retries: usize, command_timeout: u64) -> Result<()> {
                 // Get original branch from current git state (before any cleanup)
                 let original_branch = get_original_branch().unwrap_or_else(|| "main".to_string());
 
+                // Determine completion reason based on max_retries_exceeded_story
+                let reason = if let Some(story_id) = app.max_retries_exceeded_story.clone() {
+                    CompletionReason::MaxRetries { story_id }
+                } else {
+                    CompletionReason::Success
+                };
+
                 app.reset_quit_counter();
-                app.show_completion_screen(CompletionReason::Success, original_branch, ralph_branch);
+                app.show_completion_screen(reason, original_branch, ralph_branch);
             } else if !app.loop_state.running && app.is_loop_thread_finished() {
                 // Loop was stopped by user - show completion screen with UserStop reason
                 let change_name = app.selected_change_name.clone().unwrap_or_default();
