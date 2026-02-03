@@ -9,16 +9,19 @@ mod orchestrator;
 
 pub use orchestrator::{Orchestrator, DEFAULT_MAX_RETRIES};
 
+// Re-export CompletionOption from checkpoint module for TUI use
+pub use crate::checkpoint::CompletionOption;
+
 /// Default timeout in seconds for external commands (git, openspec).
 pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 30;
 
 use crate::agent::StreamEvent;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 /// Events emitted during loop execution.
 ///
 /// Includes story progress tracking and agent output for TUI display.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum LoopEvent {
     /// Progress on a story (emitted when starting each story).
     StoryProgress {
@@ -55,6 +58,13 @@ pub enum LoopEvent {
     MaxRetriesExceeded {
         /// ID of the story that exceeded max retries.
         story_id: String,
+    },
+
+    /// Orchestrator is awaiting user choice for completion action.
+    /// TUI should show completion screen and send choice via the oneshot sender.
+    AwaitingUserChoice {
+        /// Sender to communicate user's completion choice back to orchestrator.
+        choice_tx: oneshot::Sender<CompletionOption>,
     },
 
     /// The loop has completed.

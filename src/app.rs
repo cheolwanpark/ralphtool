@@ -5,8 +5,10 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+use tokio::sync::oneshot;
+
 use crate::agent::StreamEvent;
-use crate::ralph_loop::{LoopEvent, LoopState, DEFAULT_MAX_RETRIES, DEFAULT_COMMAND_TIMEOUT_SECS};
+use crate::ralph_loop::{CompletionOption, LoopEvent, LoopState, DEFAULT_MAX_RETRIES, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::spec::openspec::{ChangeInfo, OpenSpecAdapter};
 use crate::spec::SpecAdapter;
 use crate::spec::{Scenario, Story};
@@ -135,6 +137,9 @@ pub struct App {
     pub completion_data: CompletionData,
     /// Story ID that exceeded max retries (if any).
     pub max_retries_exceeded_story: Option<String>,
+    /// Oneshot sender for communicating user's completion choice to orchestrator.
+    /// Stored when AwaitingUserChoice event is received, used when user confirms selection.
+    pub completion_choice_tx: Option<oneshot::Sender<CompletionOption>>,
 }
 
 impl App {
@@ -172,6 +177,7 @@ impl App {
             last_quit_time: None,
             completion_data: CompletionData::default(),
             max_retries_exceeded_story: None,
+            completion_choice_tx: None,
         }
     }
 
@@ -296,6 +302,33 @@ impl App {
         self.show_loop_result(result);
     }
 
+    /// Sends the user's completion choice to the orchestrator via the stored oneshot sender.
+    ///
+    /// This should be called when the user confirms their selection on the completion screen.
+    /// Returns true if the choice was sent successfully, false if no sender was available.
+    #[allow(dead_code)] // Used in Story 5 when main.rs cleanup logic is removed
+    pub fn send_completion_choice(&mut self) -> bool {
+        if let Some(tx) = self.completion_choice_tx.take() {
+            let option = self.completion_data.selected_completion_option();
+
+            // Update progress message
+            self.completion_data.progress_message = Some(match option {
+                CompletionOption::Cleanup => format!("Returning to {}...", self.completion_data.original_branch),
+                CompletionOption::Keep => format!("Staying on {}...", self.completion_data.ralph_branch),
+            });
+
+            // Set in_progress to show progress indicator
+            self.completion_data.in_progress = true;
+
+            // Send the choice - ignore error if receiver is dropped
+            let _ = tx.send(option);
+
+            true
+        } else {
+            false
+        }
+    }
+
     /// Builds a LoopResult from current state and git diff.
     pub fn build_loop_result(&self) -> LoopResult {
         // Get changed files from git diff
@@ -349,6 +382,58 @@ impl App {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// Gets the original branch name by checking what branch was active before ralph branch.
+    /// This is a heuristic - we check if we're on a ralph/ branch and try to determine
+    /// what branch was used before. Falls back to reading from git symbolic-ref.
+    fn get_original_branch() -> Option<String> {
+        use std::process::Command;
+
+        // Get current branch
+        let output = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // If we're on a ralph/ branch, the original branch info is stored in the checkpoint
+        // For now, return "main" as a fallback - the real original branch is stored in
+        // the Checkpoint struct which we'd need to persist somehow
+        if current.starts_with("ralph/") {
+            // Try to find the default branch (main or master)
+            let default_output = Command::new("git")
+                .args(["symbolic-ref", "refs/remotes/origin/HEAD", "--short"])
+                .output()
+                .ok()?;
+
+            if default_output.status.success() {
+                let default_ref = String::from_utf8_lossy(&default_output.stdout).trim().to_string();
+                // Extract branch name from "origin/main" -> "main"
+                return default_ref.strip_prefix("origin/").map(String::from);
+            }
+
+            // Fallback to checking if main or master exists
+            let main_exists = Command::new("git")
+                .args(["rev-parse", "--verify", "main"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            if main_exists {
+                return Some("main".to_string());
+            }
+
+            return Some("master".to_string());
+        }
+
+        // Not on a ralph branch - return current
+        Some(current)
     }
 
     /// Switches between Tasks and ChangedFiles tabs in the result screen.
@@ -607,6 +692,31 @@ impl App {
                     // Store the story that exceeded max retries
                     self.max_retries_exceeded_story = Some(story_id);
                 }
+                LoopEvent::AwaitingUserChoice { choice_tx } => {
+                    // Store the sender for later use when user confirms selection
+                    self.completion_choice_tx = Some(choice_tx);
+
+                    // Determine completion reason based on state
+                    let reason = if let Some(story_id) = self.max_retries_exceeded_story.clone() {
+                        CompletionReason::MaxRetries { story_id }
+                    } else if !self.loop_state.running {
+                        // Loop was stopped by user
+                        CompletionReason::UserStop
+                    } else {
+                        CompletionReason::Success
+                    };
+
+                    // Derive branch names
+                    let change_name = self.selected_change_name.clone().unwrap_or_default();
+                    let ralph_branch = format!("ralph/{}", change_name);
+                    let original_branch = Self::get_original_branch().unwrap_or_else(|| "main".to_string());
+
+                    // Reset quit counter before transitioning
+                    self.reset_quit_counter();
+
+                    // Transition to completion screen
+                    self.show_completion_screen(reason, original_branch, ralph_branch);
+                }
                 LoopEvent::Complete => {
                     self.loop_state.running = false;
                     completed = true;
@@ -819,6 +929,7 @@ impl App {
     }
 
     /// Checks if the loop thread has finished.
+    #[allow(dead_code)] // Used in tests and may be used for other UI purposes
     pub fn is_loop_thread_finished(&self) -> bool {
         match &self.loop_thread {
             Some(handle) => handle.is_finished(),

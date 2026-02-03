@@ -44,6 +44,7 @@ pub struct Checkpoint {
 
 impl Checkpoint {
     /// Creates a new Checkpoint with the default timeout.
+    #[allow(dead_code)] // May be used externally or in future integrations
     pub fn new(change_name: impl Into<String>) -> Self {
         Self::with_timeout(change_name, async_cmd::DEFAULT_TIMEOUT)
     }

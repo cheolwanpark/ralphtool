@@ -125,11 +125,12 @@ fn handle_completion_events(app: &mut App, code: KeyCode) {
         KeyCode::Up | KeyCode::Down => {
             app.completion_data.toggle_option();
         }
-        // Confirm selection - note: actual cleanup is handled in the main loop
-        // This just sets in_progress and returns the option to be processed
+        // Confirm selection - send choice to orchestrator for cleanup
         KeyCode::Enter => {
-            // Mark as pending confirmation - will be handled by main loop
-            app.completion_data.in_progress = true;
+            // Forward the user's choice to the orchestrator via the oneshot channel.
+            // This sets in_progress and shows progress indicator while waiting for
+            // the orchestrator to complete cleanup and send the Complete event.
+            app.send_completion_choice();
         }
         // Cancel and go back to selection without cleanup
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {

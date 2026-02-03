@@ -12,8 +12,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::oneshot;
+
 use super::learnings::{ensure_learnings_file, read_learnings};
-use super::{LoopEvent, LoopEventSender, LoopState, DEFAULT_COMMAND_TIMEOUT_SECS};
+use super::{CompletionOption, LoopEvent, LoopEventSender, LoopState, DEFAULT_COMMAND_TIMEOUT_SECS};
 use crate::agent::{CodingAgent, PromptBuilder, StreamEvent};
 use crate::checkpoint::Checkpoint;
 use crate::error::Result;
@@ -128,9 +130,7 @@ impl Orchestrator {
             // Check for stop request
             if self.stop_flag.load(Ordering::Relaxed) {
                 state.running = false;
-                // Don't cleanup here - let TUI handle completion options
-                self.emit(LoopEvent::Complete).await;
-                return Ok(state);
+                break 'story_loop;
             }
 
             // Refresh adapter to get latest story state (async with timeout)
@@ -346,16 +346,32 @@ impl Orchestrator {
                 }
                 None => {
                     // All stories complete!
+                    state.completed_stories = state.total_stories;
                     state.current_story_id = None;
                     break 'story_loop;
                 }
             }
         }
 
-        // Don't cleanup here - let TUI show completion screen with options
-        // The TUI will call checkpoint.cleanup() with the user's choice
+        // Create oneshot channel for user choice
+        let (choice_tx, choice_rx) = oneshot::channel::<CompletionOption>();
 
-        // Emit completion event
+        // Send AwaitingUserChoice event with the sender
+        self.emit(LoopEvent::AwaitingUserChoice { choice_tx }).await;
+
+        // Wait for user's choice via the receiver
+        // Handle Err case (dropped sender / force quit) as Keep
+        let user_choice = choice_rx.await.unwrap_or(CompletionOption::Keep);
+
+        // Call checkpoint.cleanup with the received choice
+        if let Err(e) = self.checkpoint.cleanup(user_choice).await {
+            self.emit(LoopEvent::Error {
+                message: format!("Failed to cleanup: {}", e),
+            })
+            .await;
+        }
+
+        // Only send Complete event after cleanup finishes
         self.emit(LoopEvent::Complete).await;
         state.running = false;
 
